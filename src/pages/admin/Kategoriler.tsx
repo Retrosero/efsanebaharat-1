@@ -192,7 +192,7 @@ export default function Kategoriler() {
                     required
                     minLength={2}
                     maxLength={100}
-                    pattern="^[\u00C0-\u017Fa-zA-Z0-9\s\-/]+$"
+                    pattern="^[\p{L}0-9\s\/\-]+$"
                     title="En az 2, en fazla 100 karakter. Sadece harf, rakam, boşluk ve tire kullanabilirsiniz."
                     className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500"
                   />

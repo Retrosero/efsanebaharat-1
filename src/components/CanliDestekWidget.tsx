@@ -33,7 +33,8 @@ export default function CanliDestekWidget() {
           .from('whatsapp_numbers')
           .select('phone_number')
           .eq('is_active', true)
-          .single()
+          .limit(1)
+          .maybeSingle()
 
         if (data) {
           setActiveWhatsapp(data.phone_number)

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { Building2, Info, UserPlus } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { UserPlus } from 'lucide-react'
 
 export default function Kayit() {
   const [formData, setFormData] = useState({
@@ -29,31 +29,23 @@ export default function Kayit() {
     try {
       const result = await signUp(formData.email, formData.password, formData)
 
-      console.log('SignUp result:', result) // Debug için
-
-      // Hata kontrolü
       if (result.error) {
-        // E-posta zaten kayıtlı hatası
-        if (result.error.message.includes('already registered') ||
+        if (
+          result.error.message.includes('already registered') ||
           result.error.message.includes('User already registered') ||
-          result.error.message.includes('already been registered')) {
+          result.error.message.includes('already been registered')
+        ) {
           throw new Error('Bu e-posta adresi zaten kayıtlı. Lütfen giriş yapın veya farklı bir e-posta kullanın.')
         }
         throw result.error
       }
 
-      // Supabase bazen hata döndürmez ama user null olabilir veya identities boş olabilir
-      // Bu durumda kullanıcı zaten var demektir
       if (result.data?.user) {
-        // Eğer identities boşsa, kullanıcı zaten var
         if (!result.data.user.identities || result.data.user.identities.length === 0) {
           throw new Error('Bu e-posta adresi zaten kayıtlı. Lütfen giriş yapın veya farklı bir e-posta kullanın.')
         }
 
-        // Yeni kullanıcı başarıyla oluşturuldu
-        alert('✅ Kayıt başarılı!\n\n' +
-          'Hesabınız oluşturuldu. E-posta adresinize bir doğrulama linki gönderildi.\n\n' +
-          'E-postanızı doğrulamadan da giriş yapabilirsiniz.')
+        alert('Kayıt başarılı. Hesabınız oluşturuldu ve e-posta adresinize doğrulama linki gönderildi.')
         navigate('/giris')
       } else {
         throw new Error('Kayıt işlemi tamamlanamadı. Lütfen tekrar deneyin.')
@@ -74,201 +66,126 @@ export default function Kayit() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-16">
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-white rounded-lg shadow-sm p-8">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-red-600 rounded-full mx-auto mb-4 flex items-center justify-center">
-              <UserPlus className="w-8 h-8 text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-gray-900">Kayıt Ol</h1>
-            <p className="text-gray-600 mt-2">Yeni hesap oluşturun</p>
+    <div className="shop-container py-8 sm:py-12">
+      <div className="mx-auto max-w-4xl overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-lg">
+        <div className="bg-zinc-950 p-5 text-white sm:p-8">
+          <div className="shop-eyebrow border-white/20 bg-white/10 text-orange-100">
+            <UserPlus className="h-4 w-4" />
+            Yeni hesap
+          </div>
+          <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Kayıt ol</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
+            Müşteri hesabı ile hızlı sipariş verebilir, bayi başvurusu için gerekli bilgileri tek formda iletebilirsiniz.
+          </p>
+        </div>
+
+        <div className="p-5 sm:p-8">
+          <div className="mb-6 flex gap-3 rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
+            <Info className="mt-0.5 h-5 w-5 shrink-0" />
+            <p>Kayıt sonrasında e-posta adresinize doğrulama linki gönderilir. Gerekli durumlarda yönetici hesabınızı kontrol edebilir.</p>
           </div>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <p className="text-sm text-blue-800">
-              ℹ️ <strong>Bilgi:</strong> Kayıt olduktan sonra e-posta adresinize bir doğrulama linki gönderilecektir.
-              E-postanızı doğrulamadan da giriş yapabilir ve alışveriş yapabilirsiniz.
-            </p>
-          </div>
+          {error && <div className="mb-6 rounded-lg border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>}
 
-          {error && (
-            <div className="bg-red-50 text-red-600 p-4 rounded-lg mb-6">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Ad
-                </label>
-                <input
-                  type="text"
-                  name="ad"
-                  value={formData.ad}
-                  onChange={handleChange}
-                  required
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Soyad
-                </label>
-                <input
-                  type="text"
-                  name="soyad"
-                  value={formData.soyad}
-                  onChange={handleChange}
-                  required
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                />
-              </div>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Ad" name="ad" value={formData.ad} onChange={handleChange} required />
+              <Field label="Soyad" name="soyad" value={formData.soyad} onChange={handleChange} required />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                E-posta
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="E-posta" name="email" type="email" value={formData.email} onChange={handleChange} required />
+              <Field label="Şifre" name="password" type="password" value={formData.password} onChange={handleChange} required minLength={6} />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Telefon" name="telefon" type="tel" value={formData.telefon} onChange={handleChange} />
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold text-zinc-700">Müşteri tipi</span>
+                <select name="musteri_tipi" value={formData.musteri_tipi} onChange={handleChange} className="shop-input">
+                  <option value="musteri">Bireysel Müşteri</option>
+                  <option value="bayi">Bayi</option>
+                </select>
               </label>
-              <input
-                type="email"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-              />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Şifre
-              </label>
-              <input
-                type="password"
-                name="password"
-                value={formData.password}
-                onChange={handleChange}
-                required
-                minLength={6}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Telefon
-              </label>
-              <input
-                type="tel"
-                name="telefon"
-                value={formData.telefon}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold text-zinc-700">
                 Adres {formData.musteri_tipi === 'bayi' && <span className="text-red-500">*</span>}
-              </label>
+              </span>
               <textarea
                 name="adres"
                 value={formData.adres}
                 onChange={handleChange}
-                rows={3}
+                rows={4}
                 required={formData.musteri_tipi === 'bayi'}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                className="shop-input resize-y"
               />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Müşteri Tipi
-              </label>
-              <select
-                name="musteri_tipi"
-                value={formData.musteri_tipi}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-              >
-                <option value="musteri">Bireysel Müşteri</option>
-                <option value="bayi">Bayi</option>
-              </select>
-            </div>
+            </label>
 
             {formData.musteri_tipi === 'bayi' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <div className="md:col-span-2 text-sm font-medium text-gray-900 border-b pb-2 mb-2">
-                  Bayi Bilgileri (Zorunlu)
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+                <div className="mb-4 flex items-center gap-2 border-b border-zinc-200 pb-3 text-sm font-bold text-zinc-950">
+                  <Building2 className="h-4 w-4 text-orange-700" />
+                  Bayi bilgileri
                 </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Bayi Ünvanı
-                  </label>
-                  <input
-                    type="text"
-                    name="bayi_unvani"
-                    value={formData.bayi_unvani}
-                    onChange={handleChange}
-                    required={formData.musteri_tipi === 'bayi'}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Vergi Dairesi
-                  </label>
-                  <input
-                    type="text"
-                    name="vergi_dairesi"
-                    value={formData.vergi_dairesi}
-                    onChange={handleChange}
-                    required={formData.musteri_tipi === 'bayi'}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Vergi Numarası
-                  </label>
-                  <input
-                    type="text"
-                    name="vergi_no"
-                    value={formData.vergi_no}
-                    onChange={handleChange}
-                    required={formData.musteri_tipi === 'bayi'}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="md:col-span-2">
+                    <Field label="Bayi unvanı" name="bayi_unvani" value={formData.bayi_unvani} onChange={handleChange} required={formData.musteri_tipi === 'bayi'} />
+                  </div>
+                  <Field label="Vergi dairesi" name="vergi_dairesi" value={formData.vergi_dairesi} onChange={handleChange} required={formData.musteri_tipi === 'bayi'} />
+                  <Field label="Vergi numarası" name="vergi_no" value={formData.vergi_no} onChange={handleChange} required={formData.musteri_tipi === 'bayi'} />
                 </div>
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-orange-600 text-white py-3 rounded-lg font-semibold hover:bg-orange-700 transition disabled:opacity-50"
-            >
-              {loading ? 'Kayıt Yapılıyor...' : 'Kayıt Ol'}
+            <button type="submit" disabled={loading} className="shop-btn-primary w-full">
+              {loading ? (
+                <>
+                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Kayıt yapılıyor...
+                </>
+              ) : (
+                <>
+                  <UserPlus className="h-5 w-5" />
+                  Kayıt ol
+                </>
+              )}
             </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-gray-600">
-              Zaten hesabınız var mı?{' '}
-              <Link to="/giris" className="text-orange-600 hover:text-orange-700 font-semibold">
-                Giriş Yap
-              </Link>
-            </p>
+          <div className="mt-6 text-center text-sm text-zinc-600">
+            Zaten hesabınız var mı? <Link to="/giris" className="font-bold text-orange-700 hover:text-orange-800">Giriş yap</Link>
           </div>
         </div>
       </div>
     </div>
+  )
+}
+
+interface FieldProps {
+  label: string
+  name: string
+  value: string
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  type?: string
+  required?: boolean
+  minLength?: number
+}
+
+function Field({ label, name, value, onChange, type = 'text', required, minLength }: FieldProps) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-bold text-zinc-700">{label}</span>
+      <input
+        type={type}
+        name={name}
+        value={value}
+        onChange={onChange}
+        required={required}
+        minLength={minLength}
+        className="shop-input"
+      />
+    </label>
   )
 }

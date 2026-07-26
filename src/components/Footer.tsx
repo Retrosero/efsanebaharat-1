@@ -1,85 +1,80 @@
 import { Link } from 'react-router-dom'
-import { Mail, Phone, MapPin } from 'lucide-react'
+import { Mail, MapPin, Phone, ShieldCheck, Sparkles, Truck } from 'lucide-react'
 
 export default function Footer() {
   return (
-    <footer className="bg-gray-900 text-gray-300 mt-auto">
-      <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-          {/* Logo ve Açıklama */}
-          <div className="col-span-1 md:col-span-2">
-            <div className="flex items-center space-x-2 mb-4">
-              <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-xl">E</span>
+    <footer className="mt-auto border-t border-emerald-900/20 bg-zinc-950 text-zinc-300">
+      <div className="shop-container py-10 sm:py-12">
+        <div className="grid gap-8 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+          <div className="min-w-0">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-700 text-white">
+                <Sparkles className="h-5 w-5" />
               </div>
-              <span className="text-2xl font-bold text-white">EfsaneBaharat</span>
+              <div>
+                <div className="text-xl font-bold text-white">Efsane Baharat</div>
+                <div className="text-xs font-medium text-zinc-500">Premium baharat ve gıda</div>
+              </div>
             </div>
-            <p className="text-gray-400 mb-4">
-              Premium kalite baharatlar ve doğal ürünler. Mutfağınıza lezzet katın.
+            <p className="max-w-md text-sm leading-6 text-zinc-400">
+              Günlük mutfaktan profesyonel kullanıma kadar taze, seçili ve güvenilir baharat ürünleri.
             </p>
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <Phone className="w-4 h-4" />
+            <div className="mt-5 grid gap-3 text-sm">
+              <div className="flex items-center gap-3">
+                <Phone className="h-4 w-4 text-amber-500" />
                 <span>0850 123 45 67</span>
               </div>
-              <div className="flex items-center space-x-2">
-                <Mail className="w-4 h-4" />
+              <div className="flex items-center gap-3">
+                <Mail className="h-4 w-4 text-amber-500" />
                 <span>info@efsanebaharat.com</span>
               </div>
-              <div className="flex items-center space-x-2">
-                <MapPin className="w-4 h-4" />
+              <div className="flex items-center gap-3">
+                <MapPin className="h-4 w-4 text-amber-500" />
                 <span>İstanbul, Türkiye</span>
               </div>
             </div>
           </div>
 
-          {/* Hızlı Linkler */}
           <div>
-            <h3 className="text-white font-semibold mb-4">Hızlı Linkler</h3>
-            <ul className="space-y-2">
-              <li>
-                <Link to="/urunler" className="hover:text-orange-500 transition">
-                  Ürünler
-                </Link>
-              </li>
-              <li>
-                <Link to="/hakkimizda" className="hover:text-orange-500 transition">
-                  Hakkımızda
-                </Link>
-              </li>
-              <li>
-                <Link to="/iletisim" className="hover:text-orange-500 transition">
-                  İletişim
-                </Link>
-              </li>
+            <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-white">Alışveriş</h3>
+            <ul className="grid gap-2 text-sm">
+              <li><Link to="/urunler" className="hover:text-white">Tüm Ürünler</Link></li>
+              <li><Link to="/en-cok-satan" className="hover:text-white">En Çok Satanlar</Link></li>
+              <li><Link to="/kampanyalar" className="hover:text-white">Kampanyalar</Link></li>
+              <li><Link to="/sepet" className="hover:text-white">Sepetim</Link></li>
             </ul>
           </div>
 
-          {/* Müşteri Hizmetleri */}
           <div>
-            <h3 className="text-white font-semibold mb-4">Müşteri Hizmetleri</h3>
-            <ul className="space-y-2">
-              <li>
-                <Link to="/sss" className="hover:text-orange-500 transition">
-                  Sıkça Sorulan Sorular
-                </Link>
-              </li>
-              <li>
-                <Link to="/iade-kosullari" className="hover:text-orange-500 transition">
-                  İade Koşulları
-                </Link>
-              </li>
-              <li>
-                <Link to="/gizlilik" className="hover:text-orange-500 transition">
-                  Gizlilik Politikası
-                </Link>
-              </li>
+            <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-white">Hesap</h3>
+            <ul className="grid gap-2 text-sm">
+              <li><Link to="/giris" className="hover:text-white">Giriş Yap</Link></li>
+              <li><Link to="/kayit" className="hover:text-white">Kayıt Ol</Link></li>
+              <li><Link to="/hesabim" className="hover:text-white">Hesabım</Link></li>
+              <li><Link to="/sorularim" className="hover:text-white">Sorularım</Link></li>
             </ul>
+          </div>
+
+          <div>
+            <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-white">Güvence</h3>
+            <div className="grid gap-3 text-sm text-zinc-400">
+              <div className="flex gap-3">
+                <Truck className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                <span>Hızlı kargo ve takip bildirimi</span>
+              </div>
+              <div className="flex gap-3">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                <span>Güvenli ödeme altyapısı</span>
+              </div>
+              <Link to="/bize-ulasin" className="shop-btn-secondary mt-2 border-zinc-700 bg-zinc-900 text-zinc-100 hover:border-amber-500 hover:text-white">
+                Bize Ulaşın
+              </Link>
+            </div>
           </div>
         </div>
 
-        <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
-          <p>&copy; 2025 EfsaneBaharat.com - Tüm hakları saklıdır.</p>
+        <div className="mt-10 border-t border-zinc-800 pt-6 text-center text-xs text-zinc-500">
+          (c) 2026 EfsaneBaharat.com - Tüm hakları saklıdır.
         </div>
       </div>
     </footer>

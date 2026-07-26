@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { FileCode, RefreshCw, Download, Copy, Check, Key, Eye, EyeOff, Package, CheckCircle, XCircle, AlertTriangle, Activity, UploadCloud } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { generateXMLContent, downloadXML, generateSecureToken, copyToClipboard, XMLProduct } from '../../utils/xmlGenerator'
+import { fetchInBatches } from '../../utils/supabaseBatch'
 
 interface SelectedProduct {
     id: string
@@ -109,10 +110,14 @@ export default function XMLYonetim() {
                 const urunIds = [...new Set(stoklar.map(s => s.urun_id))]
 
                 const [{ data: urunler }, { data: kategoriler }, { data: markalar }, { data: gorseller }] = await Promise.all([
-                    supabase.from('urunler').select('id, urun_adi, kategori_id, marka_id').in('id', urunIds),
+                    fetchInBatches(urunIds, ids =>
+                        supabase.from('urunler').select('id, urun_adi, kategori_id, marka_id').in('id', ids)
+                    ),
                     supabase.from('kategoriler').select('id, kategori_adi'),
                     supabase.from('markalar').select('id, marka_adi'),
-                    supabase.from('urun_gorselleri').select('urun_id, gorsel_url, sira_no').in('urun_id', urunIds).order('sira_no', { ascending: true })
+                    fetchInBatches(urunIds, ids =>
+                        supabase.from('urun_gorselleri').select('urun_id, gorsel_url, sira_no').in('urun_id', ids).order('sira_no', { ascending: true })
+                    )
                 ])
 
                 const products: SelectedProduct[] = stoklar.map(stok => {

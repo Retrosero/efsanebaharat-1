@@ -1,15 +1,16 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
-import { ChevronLeft, ChevronRight, ShoppingBag, TruckIcon, Shield } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { ChevronLeft, ChevronRight, ShieldCheck, ShoppingBag, Sparkles, Truck } from 'lucide-react'
 import CanliDestekWidget from '../components/CanliDestekWidget'
-import { useAuth } from '../contexts/AuthContext'
-import { kademeliIskontoUygula } from '../utils/iskonto'
 import UrunKart from '../components/UrunKart'
+import { supabase } from '../lib/supabase'
+import { getImageUrl } from '../utils/imageUtils'
+import { fetchInBatches } from '../utils/supabaseBatch'
+
+const pageSize = 4
 
 export default function AnaSayfa() {
-  const { user, grupIskontoOrani, ozelIskontoOrani } = useAuth()
   const [banners, setBanners] = useState<any[]>([])
   const [oneCikanUrunler, setOneCikanUrunler] = useState<any[]>([])
   const [enCokSatanlar, setEnCokSatanlar] = useState<any[]>([])
@@ -21,7 +22,6 @@ export default function AnaSayfa() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const hasLoadedRef = useRef(false)
-  const navigate = useNavigate()
 
   useEffect(() => {
     if (hasLoadedRef.current) return
@@ -33,27 +33,35 @@ export default function AnaSayfa() {
         .in('id', urunIds)
         .eq('aktif_durum', true)
 
-      if (urunData && urunData.length > 0) {
-        const { data: gorseller } = await supabase
-          .from('urun_gorselleri')
-          .select('*')
-          .in('urun_id', urunIds)
-          .order('sira_no')
+      if (!urunData || urunData.length === 0) return
 
-        const { data: stoklar } = await supabase
-          .from('urun_stoklari')
-          .select('*')
-          .in('urun_id', urunIds)
-          .eq('aktif_durum', true)
+      const kategoriIds = [...new Set(urunData.map(u => u.kategori_id).filter(Boolean))]
+      const markaIds = [...new Set(urunData.map(u => u.marka_id).filter(Boolean))]
 
-        const urunlerWithData = urunData.map(urun => ({
-          ...urun,
-          urun_gorselleri: gorseller?.filter(g => g.urun_id === urun.id) || [],
-          urun_stoklari: stoklar?.filter(s => s.urun_id === urun.id) || []
-        }))
+      const [{ data: gorseller }, { data: stoklar }, { data: kategoriler }, { data: markalarData }] = await Promise.all([
+        fetchInBatches(urunIds, ids =>
+          supabase.from('urun_gorselleri').select('*').in('urun_id', ids).order('sira_no')
+        ),
+        fetchInBatches(urunIds, ids =>
+          supabase.from('urun_stoklari').select('*').in('urun_id', ids).eq('aktif_durum', true)
+        ),
+        fetchInBatches(kategoriIds, ids =>
+          supabase.from('kategoriler').select('id, kategori_adi').in('id', ids)
+        ),
+        fetchInBatches(markaIds, ids =>
+          supabase.from('markalar').select('id, marka_adi').in('id', ids)
+        )
+      ])
 
-        setter(urunlerWithData)
-      }
+      const urunlerWithData = urunData.map(urun => ({
+        ...urun,
+        urun_gorselleri: gorseller?.filter(g => g.urun_id === urun.id) || [],
+        urun_stoklari: stoklar?.filter(s => s.urun_id === urun.id) || [],
+        kategoriler: kategoriler?.find(k => k.id === urun.kategori_id),
+        markalar: markalarData?.find(m => m.id === urun.marka_id)
+      }))
+
+      setter(urunlerWithData)
     }
 
     async function loadData() {
@@ -78,8 +86,7 @@ export default function AnaSayfa() {
           .limit(4)
 
         if (onerilenData && onerilenData.length > 0) {
-          const urunIds = onerilenData.map(o => o.urun_id)
-          await loadUrunlerByIds(urunIds, setOneCikanUrunler)
+          await loadUrunlerByIds(onerilenData.map(o => o.urun_id), setOneCikanUrunler)
         } else {
           const { data: fallbackData } = await supabase
             .from('urunler')
@@ -88,8 +95,7 @@ export default function AnaSayfa() {
             .limit(4)
 
           if (fallbackData && fallbackData.length > 0) {
-            const urunIds = fallbackData.map(u => u.id)
-            await loadUrunlerByIds(urunIds, setOneCikanUrunler)
+            await loadUrunlerByIds(fallbackData.map(u => u.id), setOneCikanUrunler)
           }
         }
 
@@ -101,8 +107,7 @@ export default function AnaSayfa() {
           .limit(12)
 
         if (bestsellerData && bestsellerData.length > 0) {
-          const urunIds = bestsellerData.map(u => u.id)
-          await loadUrunlerByIds(urunIds, setEnCokSatanlar)
+          await loadUrunlerByIds(bestsellerData.map(u => u.id), setEnCokSatanlar)
         }
 
         const { data: yeniData } = await supabase
@@ -113,18 +118,17 @@ export default function AnaSayfa() {
           .limit(16)
 
         if (yeniData && yeniData.length > 0) {
-          const urunIds = yeniData.map(u => u.id)
-          await loadUrunlerByIds(urunIds, setYeniEklenenler)
+          await loadUrunlerByIds(yeniData.map(u => u.id), setYeniEklenenler)
         }
 
         const { data: markaData } = await supabase
           .from('markalar')
-          .select('*')
+          .select('id, marka_adi, logo_url')
           .eq('aktif_durum', true)
           .order('marka_adi')
+          .limit(12)
 
         if (markaData) setMarkalar(markaData)
-
         hasLoadedRef.current = true
       } catch (err) {
         console.error('Veri yükleme hatası:', err)
@@ -137,20 +141,22 @@ export default function AnaSayfa() {
     loadData()
   }, [])
 
-  const nextBanner = () => {
-    setCurrentBanner((prev) => (prev + 1) % banners.length)
-  }
+  const activeBanner = banners[currentBanner]
+  const heroImage = getImageUrl(activeBanner?.resim_url || oneCikanUrunler[0]?.urun_gorselleri?.[0]?.gorsel_url)
+  const heroTitle = activeBanner?.banner_baslik || 'Efsane Baharat'
+  const heroText = activeBanner?.banner_aciklama || 'Seçili baharatlar, kahveler ve gurme ürünler tek ekranda, hızlı sipariş akışıyla.'
+  const heroLink = activeBanner?.link_url || '/urunler'
 
-  const prevBanner = () => {
-    setCurrentBanner((prev) => (prev - 1 + banners.length) % banners.length)
-  }
+  const nextBanner = () => setCurrentBanner((prev) => (prev + 1) % Math.max(banners.length, 1))
+  const prevBanner = () => setCurrentBanner((prev) => (prev - 1 + Math.max(banners.length, 1)) % Math.max(banners.length, 1))
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-orange-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Yükleniyor...</p>
+      <div className="shop-container py-16">
+        <div className="grid gap-4 md:grid-cols-4">
+          {[0, 1, 2, 3].map((item) => (
+            <div key={item} className="h-72 animate-pulse rounded-lg bg-white shadow-sm" />
+          ))}
         </div>
       </div>
     )
@@ -158,14 +164,11 @@ export default function AnaSayfa() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-600 mb-4">{error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="bg-orange-600 text-white px-6 py-2 rounded-lg hover:bg-orange-700 transition"
-          >
-            Tekrar Dene
+      <div className="shop-container flex min-h-[60vh] items-center justify-center py-16">
+        <div className="max-w-md rounded-lg border border-red-100 bg-white p-6 text-center shadow-sm">
+          <p className="mb-4 font-semibold text-red-600">{error}</p>
+          <button type="button" onClick={() => window.location.reload()} className="shop-btn-primary">
+            Tekrar dene
           </button>
         </div>
       </div>
@@ -173,268 +176,222 @@ export default function AnaSayfa() {
   }
 
   return (
-    <div className="min-h-screen">
-      {/* Banner Slider */}
-      {banners.length > 0 && (
-        <div className="relative h-96 md:h-[500px] bg-gradient-to-r from-orange-500 to-red-600 overflow-hidden">
-          <div
-            className="absolute inset-0 transition-opacity duration-500"
-            style={{
-              backgroundImage: `url(${banners[currentBanner].resim_url})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center'
-            }}
-          >
-            <div className="absolute inset-0 bg-black bg-opacity-40" />
-          </div>
+    <div className="min-w-0">
+      <section className="shop-container pt-5 sm:pt-8">
+        <div className="relative overflow-hidden rounded-lg bg-zinc-950 text-white shadow-xl">
+          {heroImage && (
+            <img
+              src={heroImage}
+              alt={heroTitle}
+              className="absolute inset-0 h-full w-full object-cover opacity-45"
+            />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-r from-zinc-950 via-zinc-950/82 to-zinc-950/20" />
 
-          <div className="relative container mx-auto px-4 h-full flex flex-col justify-center">
-            <div className="text-white max-w-2xl">
-              <h1 className="text-4xl md:text-6xl font-bold mb-4">
-                {banners[currentBanner].banner_baslik}
+          <div className="relative grid min-h-[420px] items-end gap-6 p-5 sm:p-8 lg:min-h-[500px] lg:grid-cols-[1.08fr_0.92fr] lg:p-12">
+            <div className="max-w-2xl pb-2">
+              <div className="shop-eyebrow border-white/20 bg-white/10 text-orange-100">
+                <Sparkles className="h-4 w-4" />
+                Premium baharat ve gurme ürünler
+              </div>
+              <h1 className="mt-4 text-4xl font-bold leading-tight tracking-normal sm:text-5xl lg:text-6xl">
+                {heroTitle}
               </h1>
-              <p className="text-xl md:text-2xl mb-8">
-                {banners[currentBanner].banner_aciklama}
+              <p className="mt-4 max-w-xl text-base font-medium leading-7 text-zinc-200 sm:text-lg">
+                {heroText}
               </p>
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                <Link to={heroLink} className="shop-btn-primary">
+                  Alışverişe başla
+                </Link>
+                <Link to="/kampanyalar" className="shop-btn-secondary border-white/20 bg-white/10 text-white hover:bg-white hover:text-zinc-950">
+                  Kampanyaları gör
+                </Link>
+              </div>
+            </div>
 
-              <Link
-                to={banners[currentBanner].link_url || '/urunler'}
-                className="inline-block bg-white text-orange-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition"
-              >
-                Keşfet
-              </Link>
+            <div className="grid grid-cols-3 gap-2 rounded-lg bg-white/10 p-2 backdrop-blur lg:self-end">
+              {['Taze stok', 'Güvenli teslimat', 'Bayi fiyatları'].map((item) => (
+                <div key={item} className="rounded-md bg-white/10 p-3 text-center text-xs font-bold text-white">
+                  {item}
+                </div>
+              ))}
             </div>
           </div>
 
           {banners.length > 1 && (
-            <>
-              <button
-                onClick={prevBanner}
-                className="absolute left-4 top-1/2 -translate-y-1/2 bg-white bg-opacity-50 hover:bg-opacity-75 rounded-full p-2 transition"
-              >
-                <ChevronLeft className="w-6 h-6 text-gray-900" />
+            <div className="absolute bottom-4 right-4 flex gap-2">
+              <button type="button" onClick={prevBanner} className="grid h-11 w-11 place-items-center rounded-full bg-white/90 text-zinc-950 shadow-sm" aria-label="Önceki banner">
+                <ChevronLeft className="h-5 w-5" />
               </button>
-              <button
-                onClick={nextBanner}
-                className="absolute right-4 top-1/2 -translate-y-1/2 bg-white bg-opacity-50 hover:bg-opacity-75 rounded-full p-2 transition"
-              >
-                <ChevronRight className="w-6 h-6 text-gray-900" />
+              <button type="button" onClick={nextBanner} className="grid h-11 w-11 place-items-center rounded-full bg-white/90 text-zinc-950 shadow-sm" aria-label="Sonraki banner">
+                <ChevronRight className="h-5 w-5" />
               </button>
-            </>
+            </div>
           )}
         </div>
-      )}
+      </section>
 
-      {/* Öne Çıkan Ürünler - Grid Layout */}
       {oneCikanUrunler.length > 0 && (
-        <div className="bg-white py-16">
-          <div className="container mx-auto px-4">
-            <div className="flex items-center justify-between mb-8">
-              <h2 className="text-3xl font-bold text-gray-900">Öne Çıkan Ürünler</h2>
-              <Link to="/urunler" className="text-orange-600 hover:text-orange-700 font-semibold">
-                Tümünü Gör
-              </Link>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {oneCikanUrunler.map((urun) => {
-                return (
-                  <div key={urun.id} className="h-full">
-                    <UrunKart urun={urun} />
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
+        <ProductRail title="Öne çıkan ürünler" subtitle="Hızlı seçim için önerilen raf" link="/urunler" products={oneCikanUrunler} />
       )}
 
-      {/* En Çok Satanlar - 4 ürün x 3 sayfa */}
       {enCokSatanlar.length > 0 && (
-        <div className="bg-gray-50 py-16">
-          <div className="container mx-auto px-4">
-            <div className="flex items-center justify-between mb-8">
-              <h2 className="text-3xl font-bold text-gray-900">En Çok Satanlar</h2>
-              <Link to="/en-cok-satan" className="text-orange-600 hover:text-orange-700 font-semibold">
-                Tümünü Gör
-              </Link>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
-              {enCokSatanlar.slice(bestsellerPage * 4, (bestsellerPage + 1) * 4).map((urun) => {
-                return (
-                  <div key={urun.id} className="h-full">
-                    <UrunKart urun={urun} />
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Pagination */}
-            {enCokSatanlar.length > 4 && (
-              <div className="flex justify-center items-center space-x-2">
-                <button
-                  onClick={() => setBestsellerPage(Math.max(0, bestsellerPage - 1))}
-                  disabled={bestsellerPage === 0}
-                  className="p-2 rounded-lg hover:bg-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                {[...Array(Math.ceil(enCokSatanlar.length / 4))].map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setBestsellerPage(i)}
-                    className={`w-8 h-8 rounded-lg transition ${bestsellerPage === i
-                      ? 'bg-orange-600 text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setBestsellerPage(Math.min(Math.ceil(enCokSatanlar.length / 4) - 1, bestsellerPage + 1))}
-                  disabled={bestsellerPage >= Math.ceil(enCokSatanlar.length / 4) - 1}
-                  className="p-2 rounded-lg hover:bg-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        <ProductRail
+          title="En çok satanlar"
+          subtitle="Siparişlerde en çok tercih edilenler"
+          link="/en-cok-satan"
+          products={enCokSatanlar.slice(bestsellerPage * pageSize, (bestsellerPage + 1) * pageSize)}
+          total={enCokSatanlar.length}
+          page={bestsellerPage}
+          onPageChange={setBestsellerPage}
+        />
       )}
 
-      {/* Yeni Eklenenler - 4 ürün x 4 sayfa */}
       {yeniEklenenler.length > 0 && (
-        <div className="bg-white py-16">
-          <div className="container mx-auto px-4">
-            <div className="flex items-center justify-between mb-8">
-              <h2 className="text-3xl font-bold text-gray-900">Yeni Eklenen Ürünler</h2>
-              <Link to="/urunler" className="text-orange-600 hover:text-orange-700 font-semibold">
-                Tümünü Gör
-              </Link>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
-              {yeniEklenenler.slice(newProductsPage * 4, (newProductsPage + 1) * 4).map((urun) => {
-                return (
-                  <div key={urun.id} className="h-full">
-                    <UrunKart urun={urun} />
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Pagination */}
-            {yeniEklenenler.length > 4 && (
-              <div className="flex justify-center items-center space-x-2">
-                <button
-                  onClick={() => setNewProductsPage(Math.max(0, newProductsPage - 1))}
-                  disabled={newProductsPage === 0}
-                  className="p-2 rounded-lg hover:bg-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                {[...Array(Math.ceil(yeniEklenenler.length / 4))].map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setNewProductsPage(i)}
-                    className={`w-8 h-8 rounded-lg transition ${newProductsPage === i
-                      ? 'bg-orange-600 text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setNewProductsPage(Math.min(Math.ceil(yeniEklenenler.length / 4) - 1, newProductsPage + 1))}
-                  disabled={newProductsPage >= Math.ceil(yeniEklenenler.length / 4) - 1}
-                  className="p-2 rounded-lg hover:bg-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        <ProductRail
+          title="Yeni eklenenler"
+          subtitle="XML ve panel stoklarından güncel ürünler"
+          link="/urunler"
+          products={yeniEklenenler.slice(newProductsPage * pageSize, (newProductsPage + 1) * pageSize)}
+          total={yeniEklenenler.length}
+          page={newProductsPage}
+          onPageChange={setNewProductsPage}
+        />
       )}
 
-      {/* Markalar */}
       {markalar.length > 0 && (
-        <div className="bg-gray-50 py-16">
-          <div className="container mx-auto px-4">
-            <h2 className="text-3xl font-bold text-gray-900 mb-8">Markalarımız</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-              {markalar.map((marka) => (
+        <section className="shop-container py-10">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-700">Markalar</p>
+              <h2 className="mt-2 text-2xl font-bold text-zinc-950 sm:text-3xl">Güvenilen seçimler</h2>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-600">
+                Sık kullanılan marka raflarına logolar üzerinden hızlıca geçin.
+              </p>
+            </div>
+            <Link to="/urunler" className="shop-btn-secondary min-h-[40px] px-4 py-2 text-sm">
+              Tümü
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+            {markalar.map((marka) => {
+              const logoUrl = getImageUrl(marka.logo_url)
+
+              return (
                 <Link
                   key={marka.id}
                   to={`/urunler?marka=${marka.id}`}
-                  className="bg-white p-8 rounded-lg shadow-sm hover:shadow-md transition text-center group"
+                  className="group flex min-h-[172px] min-w-0 flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-md"
                 >
-                  {marka.logo_url ? (
-                    <img
-                      src={marka.logo_url}
-                      alt={marka.marka_adi}
-                      className="h-20 mx-auto mb-4 object-contain"
-                    />
-                  ) : (
-                    <div className="h-20 mb-4 flex items-center justify-center">
-                      <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
-                        <span className="text-white text-3xl font-bold">
-                          {marka.marka_adi.charAt(0)}
-                        </span>
+                  <div className="flex aspect-[4/3] w-full items-center justify-center bg-zinc-50 p-4">
+                    {logoUrl ? (
+                      <img
+                        src={logoUrl}
+                        alt={`${marka.marka_adi} logosu`}
+                        className="max-h-full max-w-full object-contain transition duration-200 group-hover:scale-[1.03]"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-orange-100 text-2xl font-bold text-orange-700">
+                        {marka.marka_adi?.charAt(0) || 'M'}
                       </div>
-                    </div>
-                  )}
-                  <h3 className="font-semibold text-gray-900 group-hover:text-orange-600 transition">
-                    {marka.marka_adi}
-                  </h3>
-                  {marka.aciklama && (
-                    <p className="text-sm text-gray-600 mt-2">{marka.aciklama}</p>
-                  )}
+                    )}
+                  </div>
+                  <div className="flex min-h-[56px] items-center justify-center border-t border-zinc-100 px-3 py-3 text-center">
+                    <span className="line-clamp-2 text-sm font-semibold leading-snug text-zinc-800 group-hover:text-orange-700">
+                      {marka.marka_adi}
+                    </span>
+                  </div>
                 </Link>
-              ))}
-            </div>
+              )
+            })}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Özellikler Bölümü - Footer Üzeri */}
-      <div className="bg-white py-12 border-b mt-16">
-        <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
-                <TruckIcon className="w-6 h-6 text-orange-600" />
+      <section className="shop-container pb-12 pt-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          {[
+            { icon: Truck, title: 'Hızlı operasyon', text: 'Siparişler stok ve kargo akışı için hazırlanır.' },
+            { icon: ShieldCheck, title: 'Güvenli alışveriş', text: 'Ödeme ve sipariş süreci server taraflı doğrulamaya hazır.' },
+            { icon: ShoppingBag, title: 'Bayi uyumlu', text: 'Bayi fiyatları, XML stokları ve seçili sortiler desteklenir.' }
+          ].map((item) => {
+            const Icon = item.icon
+            return (
+              <div key={item.title} className="flex min-w-0 gap-4 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-orange-100 text-orange-700">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-zinc-950">{item.title}</h3>
+                  <p className="mt-1 text-sm leading-6 text-zinc-600">{item.text}</p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">Hızlı Kargo</h3>
-                <p className="text-gray-600 text-sm">Aynı gün kargo</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
-                <Shield className="w-6 h-6 text-orange-600" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">Güvenli Alışveriş</h3>
-                <p className="text-gray-600 text-sm">256-bit SSL şifreleme</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
-                <ShoppingBag className="w-6 h-6 text-orange-600" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">Premium Kalite</h3>
-                <p className="text-gray-600 text-sm">Özenle seçilmiş ürünler</p>
-              </div>
-            </div>
-          </div>
+            )
+          })}
+        </div>
+      </section>
+
+      <CanliDestekWidget />
+    </div>
+  )
+}
+
+interface ProductRailProps {
+  title: string
+  subtitle: string
+  link: string
+  products: any[]
+  total?: number
+  page?: number
+  onPageChange?: (page: number) => void
+}
+
+function ProductRail({ title, subtitle, link, products, total, page = 0, onPageChange }: ProductRailProps) {
+  const pageCount = Math.ceil((total || products.length) / pageSize)
+
+  return (
+    <section className="shop-container py-8 sm:py-10">
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-700">{subtitle}</p>
+          <h2 className="mt-2 text-2xl font-bold text-zinc-950 sm:text-3xl">{title}</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          {onPageChange && pageCount > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={() => onPageChange(Math.max(0, page - 1))}
+                disabled={page === 0}
+                className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-800 disabled:opacity-40"
+                aria-label="Önceki sayfa"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onPageChange(Math.min(pageCount - 1, page + 1))}
+                disabled={page >= pageCount - 1}
+                className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-800 disabled:opacity-40"
+                aria-label="Sonraki sayfa"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </>
+          )}
+          <Link to={link} className="shop-btn-secondary min-h-[40px] px-4 py-2 text-sm">
+            Tümünü gör
+          </Link>
         </div>
       </div>
 
-      {/* Canlı Destek Widget */}
-      <CanliDestekWidget />
-    </div>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        {products.map((urun) => (
+          <UrunKart key={urun.id} urun={urun} />
+        ))}
+      </div>
+    </section>
   )
 }

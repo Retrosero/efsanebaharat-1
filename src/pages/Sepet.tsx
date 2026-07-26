@@ -1,12 +1,14 @@
-import { Link, useNavigate } from 'react-router-dom'
-import { useSepet } from '../contexts/SepetContext'
-import { useAuth } from '../contexts/AuthContext'
-import { Trash2, Plus, Minus, ShoppingBag, CreditCard } from 'lucide-react'
 import { useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { akilliBirimGoster } from '../utils/birimDonusturucu'
+import { CreditCard, LockKeyhole, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react'
 import KampanyaUygula from '../components/KampanyaUygula'
+import { useAuth } from '../contexts/AuthContext'
+import { useSepet } from '../contexts/SepetContext'
+import { supabase } from '../lib/supabase'
+import { akilliBirimGoster } from '../utils/birimDonusturucu'
+
+const formatPrice = (value: number) => `${Math.max(0, value).toFixed(2)} TL`
 
 export default function Sepet() {
   const { sepetItems, sepettenCikar, miktarGuncelle, toplamTutar, sepetiTemizle } = useSepet()
@@ -21,7 +23,7 @@ export default function Sepet() {
   const kdvOrani = 0.20
   const araToplamTutar = toplamTutar / (1 + kdvOrani)
   const kdvTutari = toplamTutar - araToplamTutar
-  const indirimliToplam = toplamTutar - kampanyaIndirimi
+  const indirimliToplam = Math.max(0, toplamTutar - kampanyaIndirimi)
 
   async function handleOdemeYap() {
     if (!user || !musteriData) {
@@ -43,13 +45,11 @@ export default function Sepet() {
         },
       })
 
-      if (error) {
-        throw error
-      }
+      if (error) throw error
 
       const token = data?.token
       if (!token) {
-        throw new Error(data?.error?.message || 'Ödeme tokenı alınamadı')
+        throw new Error(data?.error?.message || 'Ödeme tokeni alınamadı')
       }
 
       setPaymentToken(token)
@@ -64,35 +64,36 @@ export default function Sepet() {
 
   if (showPaymentIframe && paymentToken) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
-          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-            <h1 className="text-2xl font-bold text-gray-900 mb-4">Ödeme Sayfası</h1>
-            <p className="text-gray-600 mb-4">
-              Güvenli ödeme sayfasına yönlendiriliyorsunuz...
-            </p>
+      <div className="shop-container py-6 sm:py-8">
+        <div className="mx-auto max-w-5xl">
+          <div className="mb-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-zinc-950">Güvenli ödeme</h1>
+                <p className="mt-1 text-sm text-zinc-600">PayTR ödeme ekranı aşağıda açıldı.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPaymentIframe(false)
+                  setPaymentToken('')
+                }}
+                className="shop-btn-secondary"
+              >
+                Ödemeyi iptal et
+              </button>
+            </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+          <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
             <iframe
               src={`https://www.paytr.com/odeme/guvenli/${paymentToken}`}
               id="paytriframe"
+              title="PayTR Ödeme"
               frameBorder="0"
               scrolling="no"
-              style={{ width: '100%', height: '800px' }}
-            ></iframe>
-          </div>
-
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => {
-                setShowPaymentIframe(false)
-                setPaymentToken('')
-              }}
-              className="text-orange-600 hover:text-orange-700"
-            >
-              Ödemeyi İptal Et
-            </button>
+              className="h-[720px] w-full sm:h-[800px]"
+            />
           </div>
         </div>
       </div>
@@ -100,127 +101,160 @@ export default function Sepet() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">Sepetim</h1>
+    <div className="shop-container py-6 sm:py-8">
+      <div className="mb-6 rounded-lg bg-zinc-950 p-5 text-white shadow-lg sm:p-7">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <div className="shop-eyebrow border-white/20 bg-white/10 text-orange-100">
+              <ShoppingBag className="h-4 w-4" />
+              Sepet
+            </div>
+            <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Sepetim</h1>
+            <p className="mt-2 text-sm leading-6 text-zinc-300 sm:text-base">
+              Seçili sortileri kontrol edin, kampanyayı uygulayın ve ödemeye geçin.
+            </p>
+          </div>
+          {sepetItems.length > 0 && (
+            <button type="button" onClick={sepetiTemizle} className="shop-btn-secondary border-white/20 bg-white/10 text-white hover:bg-white hover:text-zinc-950">
+              <Trash2 className="h-4 w-4" />
+              Sepeti temizle
+            </button>
+          )}
+        </div>
+      </div>
 
       {sepetItems.length === 0 ? (
-        <div className="bg-white rounded-lg shadow-sm p-12 text-center">
-          <ShoppingBag className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-500 mb-6">Sepetiniz boş</p>
-          <Link
-            to="/urunler"
-            className="inline-block bg-orange-600 text-white px-6 py-3 rounded-lg hover:bg-orange-700 transition"
-          >
-            Alışverişe Başla
+        <div className="flex min-h-[360px] flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-white p-8 text-center shadow-sm">
+          <ShoppingBag className="h-16 w-16 text-zinc-300" />
+          <h2 className="mt-4 text-2xl font-bold text-zinc-950">Sepetiniz boş</h2>
+          <p className="mt-2 max-w-sm text-sm leading-6 text-zinc-500">
+            Ürünleri inceleyip size uygun sortiyi seçtiğinizde sepet burada hazır olacak.
+          </p>
+          <Link to="/urunler" className="shop-btn-primary mt-6">
+            Alışverişe başla
           </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-sm">
-              {sepetItems.map((item) => (
-                <div key={`${item.urun_id}-${item.birim_turu}`} className="flex flex-col md:flex-row items-start md:items-center gap-4 p-6 border-b last:border-b-0">
-                  <div className="flex items-center gap-4 w-full md:w-auto">
-                    <div className="w-24 h-24 bg-gray-100 rounded-lg flex-shrink-0 overflow-hidden">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <section className="min-w-0 space-y-3">
+            {sepetItems.map((item) => {
+              const minMiktar = item.min_siparis_miktari || 1
+              const itemKey = `${item.urun_id}-${item.birim_turu}-${item.birim_adedi || 'na'}`
+
+              return (
+                <article key={itemKey} className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm sm:p-4">
+                  <div className="grid gap-3 sm:grid-cols-[96px_minmax(0,1fr)]">
+                    <div className="h-24 w-24 overflow-hidden rounded-lg bg-zinc-100">
                       {item.gorsel_url ? (
-                        <img src={item.gorsel_url} alt={item.urun_adi} className="w-full h-full object-cover" />
+                        <img src={item.gorsel_url} alt={item.urun_adi} className="h-full w-full object-cover" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <span className="text-2xl font-bold text-gray-400">{item.urun_adi.charAt(0)}</span>
+                        <div className="flex h-full w-full items-center justify-center bg-orange-100 text-2xl font-bold text-orange-700">
+                          {item.urun_adi.charAt(0)}
                         </div>
                       )}
                     </div>
 
-                    <div className="flex-1 md:hidden">
-                      <h3 className="font-semibold text-gray-900 mb-1">{item.urun_adi}</h3>
-                      <p className="text-sm text-gray-500 mb-2">
-                        {akilliBirimGoster(item.birim_adedi || 100, item.birim_adedi_turu || item.birim_turu)}
-                      </p>
-                      <p className="text-orange-600 font-bold">{item.birim_fiyat.toFixed(2)} ₺</p>
+                    <div className="min-w-0">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <h2 className="break-words text-base font-bold text-zinc-950 sm:text-lg">{item.urun_adi}</h2>
+                          <p className="mt-1 text-sm font-semibold text-zinc-500">
+                            {akilliBirimGoster(item.birim_adedi || 1, item.birim_adedi_turu || item.birim_turu)}
+                          </p>
+                        </div>
+                        <div className="text-left sm:text-right">
+                          <p className="text-sm font-semibold text-zinc-500">Birim</p>
+                          <p className="font-bold text-orange-700">{formatPrice(item.birim_fiyat)}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => miktarGuncelle(item.urun_id, item.birim_turu, Math.max(minMiktar, item.miktar - 1), item.birim_adedi)}
+                            disabled={item.miktar <= minMiktar}
+                            className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-800 disabled:opacity-40"
+                            aria-label="Miktarı azalt"
+                          >
+                            <Minus className="h-4 w-4" />
+                          </button>
+                          <input
+                            type="number"
+                            min={minMiktar}
+                            value={item.miktar}
+                            onChange={(e) => {
+                              const val = Number(e.target.value)
+                              if (!Number.isNaN(val) && val >= minMiktar) {
+                                miktarGuncelle(item.urun_id, item.birim_turu, val, item.birim_adedi)
+                              }
+                            }}
+                            onFocus={(e) => e.target.select()}
+                            className="shop-input w-20 text-center font-bold"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => miktarGuncelle(item.urun_id, item.birim_turu, item.miktar + 1, item.birim_adedi)}
+                            className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-800"
+                            aria-label="Miktarı artır"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-4 sm:justify-end">
+                          <div>
+                            <p className="text-xs font-bold uppercase tracking-[0.12em] text-zinc-400">Toplam</p>
+                            <p className="text-lg font-bold text-zinc-950">{formatPrice(item.birim_fiyat * item.miktar)}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => sepettenCikar(item.urun_id, item.birim_turu, item.birim_adedi)}
+                            className="grid h-10 w-10 place-items-center rounded-lg border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100"
+                            aria-label="Sepetten çıkar"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
+                </article>
+              )
+            })}
+          </section>
 
-                  <div className="flex-1 hidden md:block">
-                    <h3 className="font-semibold text-gray-900 mb-1">{item.urun_adi}</h3>
-                    <p className="text-sm text-gray-500 mb-2">
-                      {akilliBirimGoster(item.birim_adedi || 100, item.birim_adedi_turu || item.birim_turu)}
-                    </p>
-                    <p className="text-orange-600 font-bold">{item.birim_fiyat.toFixed(2)} ₺</p>
-                  </div>
+          <aside className="min-w-0">
+            <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm lg:sticky lg:top-24">
+              <div className="mb-5 flex items-center gap-2">
+                <LockKeyhole className="h-5 w-5 text-orange-700" />
+                <h2 className="text-xl font-bold text-zinc-950">Sipariş özeti</h2>
+              </div>
 
-                  <div className="flex items-center justify-between w-full md:w-auto mt-4 md:mt-0">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => miktarGuncelle(item.urun_id, item.birim_turu, Math.max(item.min_siparis_miktari, item.miktar - 1), item.birim_adedi)}
-                        disabled={item.miktar <= item.min_siparis_miktari}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <Minus className="w-4 h-4" />
-                      </button>
-                      <input
-                        type="number"
-                        min={item.min_siparis_miktari}
-                        value={item.miktar}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value)
-                          if (!isNaN(val) && val >= item.min_siparis_miktari) {
-                            miktarGuncelle(item.urun_id, item.birim_turu, val, item.birim_adedi)
-                          }
-                        }}
-                        onFocus={(e) => e.target.select()}
-                        className="w-16 text-center font-semibold border border-gray-300 rounded-md py-1 mx-1 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                      />
-                      <button
-                        onClick={() => miktarGuncelle(item.urun_id, item.birim_turu, item.miktar + 1, item.birim_adedi)}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-300 hover:bg-gray-50"
-                      >
-                        <Plus className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <div className="text-right md:ml-4 flex items-center gap-4 md:block">
-                      <p className="font-bold text-gray-900 md:mb-2">
-                        {(item.birim_fiyat * item.miktar).toFixed(2)} ₺
-                      </p>
-                      <button
-                        onClick={() => sepettenCikar(item.urun_id, item.birim_turu, item.birim_adedi)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between gap-3 text-zinc-600">
+                  <span>Ara toplam</span>
+                  <span className="font-bold text-zinc-900">{formatPrice(araToplamTutar)}</span>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow-sm p-6 sticky top-20">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">Sipariş Özeti</h2>
-
-              <div className="space-y-3 mb-6">
-                <div className="flex justify-between text-gray-600">
-                  <span>Ara Toplam</span>
-                  <span>{araToplamTutar.toFixed(2)} ₺</span>
-                </div>
-                <div className="flex justify-between text-gray-600">
+                <div className="flex justify-between gap-3 text-zinc-600">
                   <span>KDV (%{(kdvOrani * 100).toFixed(0)})</span>
-                  <span>{kdvTutari.toFixed(2)} ₺</span>
+                  <span className="font-bold text-zinc-900">{formatPrice(kdvTutari)}</span>
                 </div>
                 {kampanyaIndirimi > 0 && (
-                  <div className="flex justify-between text-green-600 font-semibold">
-                    <span>Kampanya İndirimi</span>
-                    <span>-{kampanyaIndirimi.toFixed(2)} ₺</span>
+                  <div className="flex justify-between gap-3 font-bold text-emerald-700">
+                    <span>Kampanya indirimi</span>
+                    <span>-{formatPrice(kampanyaIndirimi)}</span>
                   </div>
                 )}
-                <div className="border-t pt-3 flex justify-between text-lg font-bold text-gray-900">
-                  <span>Toplam</span>
-                  <span>{indirimliToplam.toFixed(2)} ₺</span>
+                <div className="border-t border-zinc-100 pt-4">
+                  <div className="flex items-end justify-between gap-3">
+                    <span className="text-base font-bold text-zinc-950">Toplam</span>
+                    <span className="text-2xl font-bold text-zinc-950">{formatPrice(indirimliToplam)}</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="mb-6">
+              <div className="my-5">
                 <KampanyaUygula
                   sepetTutari={toplamTutar}
                   onKampanyaUygula={(kampanya, indirim) => {
@@ -232,39 +266,34 @@ export default function Sepet() {
 
               {user ? (
                 <button
+                  type="button"
                   onClick={handleOdemeYap}
                   disabled={loading}
-                  className="w-full bg-orange-600 text-white py-3 rounded-lg hover:bg-orange-700 transition flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="shop-btn-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loading ? (
                     <>
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      <span>İşleniyor...</span>
+                      <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      Isleniyor...
                     </>
                   ) : (
                     <>
-                      <CreditCard className="w-5 h-5" />
-                      <span>Ödemeye Geç</span>
+                      <CreditCard className="h-5 w-5" />
+                      Ödemeye geç
                     </>
                   )}
                 </button>
               ) : (
-                <Link
-                  to="/giris?redirect=/sepet"
-                  className="block w-full bg-orange-600 text-white py-3 rounded-lg hover:bg-orange-700 transition text-center"
-                >
-                  Giriş Yapın
+                <Link to="/giris?redirect=/sepet" className="shop-btn-primary w-full">
+                  Giriş yapın
                 </Link>
               )}
 
-              <button
-                onClick={sepetiTemizle}
-                className="w-full mt-3 bg-gray-100 text-gray-700 py-2 rounded-lg hover:bg-gray-200 transition"
-              >
-                Sepeti Temizle
-              </button>
+              <p className="mt-3 text-center text-xs leading-5 text-zinc-500">
+                Ödeme PayTR üzerinden güvenli sayfada tamamlanır.
+              </p>
             </div>
-          </div>
+          </aside>
         </div>
       )}
     </div>

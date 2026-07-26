@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
-import { useSepet } from '../contexts/SepetContext'
-import { useAuth } from '../contexts/AuthContext'
-import { ShoppingCart, Check } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Check, Minus, Plus, ShoppingCart, Sparkles } from 'lucide-react'
 import UrunSoruModul from '../components/UrunSoruModul'
-import { kademeliIskontoUygula } from '../utils/iskonto'
+import { useAuth } from '../contexts/AuthContext'
+import { useSepet } from '../contexts/SepetContext'
+import { supabase } from '../lib/supabase'
+import { akilliBirimGoster } from '../utils/birimDonusturucu'
 import { getImageUrl } from '../utils/imageUtils'
+import { kademeliIskontoUygula } from '../utils/iskonto'
 
 export default function UrunDetay() {
   const { id } = useParams()
@@ -19,72 +20,73 @@ export default function UrunDetay() {
   const [secilenGorsel, setSecilenGorsel] = useState(0)
   const [eklendi, setEklendi] = useState(false)
 
-  // İskonto bilgisi
-  const iskontoInfo = secilenStok ? kademeliIskontoUygula(secilenStok.fiyat, grupIskontoOrani, ozelIskontoOrani) : null
+  const iskontoInfo = useMemo(() => {
+    if (!secilenStok) return null
+    return kademeliIskontoUygula(Number(secilenStok.fiyat || 0), grupIskontoOrani, ozelIskontoOrani)
+  }, [grupIskontoOrani, ozelIskontoOrani, secilenStok])
 
-  useEffect(() => {
-    if (id) {
-      loadUrun()
-      trackProductView()
-    }
-  }, [id])
-
-  async function trackProductView() {
+  const trackProductView = useCallback(async () => {
     try {
-      // Ürün görüntüleme kaydı ekle
       await supabase.from('product_views').insert([{
         urun_id: id,
         user_id: user?.id || null,
-        ip_address: null, // Browser'da IP alamıyoruz, Edge Function'dan alınabilir
+        ip_address: null,
         user_agent: navigator.userAgent
       }])
     } catch (error) {
-      // Sessizce hata yakalama, kullanıcı deneyimini bozmamak için
       console.error('Product view tracking error:', error)
     }
-  }
+  }, [id, user?.id])
 
-  async function loadUrun() {
+  const loadUrun = useCallback(async () => {
     const { data } = await supabase
       .from('urunler')
       .select('*')
       .eq('id', id)
       .maybeSingle()
 
-    if (data) {
-      // Görselleri, stokları, kategori ve markayı ayrı çek
-      // Stok filtreleme: Kullanıcı tipine göre (ziyaretçiler müşteri stokları görür)
-      const musteriTipi = musteriData?.musteri_tipi || 'musteri'
+    if (!data) return
 
-      const [{ data: gorseller }, { data: stoklar }, { data: kategori }, { data: marka }] = await Promise.all([
-        supabase.from('urun_gorselleri').select('*').eq('urun_id', data.id).order('sira_no'),
-        supabase.from('urun_stoklari').select('*').eq('urun_id', data.id).eq('aktif_durum', true),
-        supabase.from('kategoriler').select('*').eq('id', data.kategori_id).maybeSingle(),
-        supabase.from('markalar').select('*').eq('id', data.marka_id).maybeSingle()
-      ])
+    const musteriTipi = musteriData?.musteri_tipi || 'musteri'
 
-      // Stokları filtrele: stok_grubu 'hepsi' veya kullanıcı tipine uygun olanlar
-      const filtreliStoklar = stoklar?.filter(s =>
-        !s.stok_grubu || s.stok_grubu === 'hepsi' || s.stok_grubu === musteriTipi
-      ) || []
+    const [{ data: gorseller }, { data: stoklar }, { data: kategori }, { data: marka }] = await Promise.all([
+      supabase.from('urun_gorselleri').select('*').eq('urun_id', data.id).order('sira_no'),
+      supabase.from('urun_stoklari').select('*').eq('urun_id', data.id).eq('aktif_durum', true),
+      supabase.from('kategoriler').select('*').eq('id', data.kategori_id).maybeSingle(),
+      supabase.from('markalar').select('*').eq('id', data.marka_id).maybeSingle()
+    ])
 
-      const urunWithData = {
-        ...data,
-        urun_gorselleri: gorseller || [],
-        urun_stoklari: filtreliStoklar,
-        kategoriler: kategori,
-        markalar: marka
-      }
+    const filtreliStoklar = stoklar?.filter(s =>
+      !s.stok_grubu || s.stok_grubu === 'hepsi' || s.stok_grubu === musteriTipi
+    ) || []
 
-      setUrun(urunWithData)
-      if (filtreliStoklar && filtreliStoklar.length > 0) {
-        setSecilenStok(filtreliStoklar[0])
-      }
+    setUrun({
+      ...data,
+      urun_gorselleri: gorseller || [],
+      urun_stoklari: filtreliStoklar,
+      kategoriler: kategori,
+      markalar: marka
+    })
+
+    if (filtreliStoklar.length > 0) {
+      setSecilenStok(filtreliStoklar[0])
+      setMiktar(filtreliStoklar[0].min_siparis_miktari || 1)
     }
+  }, [id, musteriData?.musteri_tipi])
+
+  useEffect(() => {
+    if (id) {
+      loadUrun()
+      trackProductView()
+    }
+  }, [id, loadUrun, trackProductView])
+
+  function selectStok(stok: any) {
+    setSecilenStok(stok)
+    setMiktar(Math.max(stok.min_siparis_miktari || 1, miktar))
   }
 
   function handleSepeteEkle() {
-    // Giriş yapmamış kullanıcıyı giriş sayfasına yönlendir
     if (!user) {
       navigate('/giris')
       return
@@ -92,15 +94,15 @@ export default function UrunDetay() {
 
     if (!urun || !secilenStok) return
 
-    const gorsel = urun.urun_gorselleri?.[0]?.gorsel_url
-    const fiyat = iskontoInfo?.varMi ? iskontoInfo.yeniFiyat : secilenStok.fiyat
+    const gorsel = getImageUrl(urun.urun_gorselleri?.[0]?.gorsel_url)
+    const fiyat = iskontoInfo?.varMi ? iskontoInfo.yeniFiyat : Number(secilenStok.fiyat || 0)
 
     sepeteEkle({
       urun_id: urun.id,
       urun_adi: urun.urun_adi,
       birim_turu: secilenStok.birim_turu,
       birim_adedi: secilenStok.birim_adedi,
-      birim_adedi_turu: secilenStok.birim_adedi_turu,
+      birim_adedi_turu: secilenStok.birim_adedi_turu || secilenStok.birim_turu,
       birim_fiyat: fiyat,
       miktar,
       gorsel_url: gorsel,
@@ -108,204 +110,176 @@ export default function UrunDetay() {
     })
 
     setEklendi(true)
-    setTimeout(() => setEklendi(false), 2000)
+    window.setTimeout(() => setEklendi(false), 2000)
   }
 
   if (!urun) {
     return (
-      <div className="container mx-auto px-4 py-12 text-center">
-        <div className="inline-block w-8 h-8 border-4 border-orange-600 border-t-transparent rounded-full animate-spin" />
+      <div className="shop-container py-16">
+        <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-orange-600 border-t-transparent" />
       </div>
     )
   }
 
   const gorseller = urun.urun_gorselleri || []
+  const fiyat = iskontoInfo?.varMi ? iskontoInfo.yeniFiyat : Number(secilenStok?.fiyat || 0)
+  const minimumMiktar = secilenStok?.min_siparis_miktari || 1
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-        {/* Görseller */}
-        <div>
-          <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-4">
-            {gorseller.length > 0 ? (
-              <img
-                src={getImageUrl(gorseller[secilenGorsel].gorsel_url)}
-                alt={urun.urun_adi}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <div className="w-48 h-48 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
-                  <span className="text-white text-8xl font-bold">
-                    {urun.urun_adi.charAt(0)}
-                  </span>
+    <div className="shop-container py-6 sm:py-8">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_440px] lg:gap-10">
+        <section className="min-w-0">
+          <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
+            <div className="aspect-square bg-zinc-100">
+              {gorseller.length > 0 ? (
+                <img
+                  src={getImageUrl(gorseller[secilenGorsel]?.gorsel_url)}
+                  alt={urun.urun_adi}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_50%_35%,#fed7aa,#fafaf9_55%,#e7e5e4)]">
+                  <div className="flex h-28 w-28 items-center justify-center rounded-full bg-zinc-950 text-5xl font-bold text-white">
+                    {urun.urun_adi?.charAt(0) || 'E'}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {gorseller.length > 1 && (
-            <div className="grid grid-cols-5 gap-2">
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
               {gorseller.map((gorsel: any, index: number) => (
                 <button
                   key={gorsel.id}
+                  type="button"
                   onClick={() => setSecilenGorsel(index)}
-                  className={`aspect-square rounded-lg overflow-hidden border-2 ${index === secilenGorsel ? 'border-orange-600' : 'border-transparent'
-                    }`}
+                  className={`h-20 w-20 shrink-0 overflow-hidden rounded-lg border-2 bg-white ${index === secilenGorsel ? 'border-orange-600' : 'border-zinc-200'}`}
                 >
-                  <img
-                    src={getImageUrl(gorsel.gorsel_url)}
-                    alt={`${urun.urun_adi} ${index + 1}`}
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={getImageUrl(gorsel.gorsel_url)} alt={`${urun.urun_adi} ${index + 1}`} className="h-full w-full object-cover" />
                 </button>
               ))}
             </div>
           )}
-        </div>
+        </section>
 
-        {/* Ürün Bilgileri */}
-        <div>
-          <div className="mb-4">
-            <span className="text-sm text-gray-500">{urun.markalar?.marka_adi}</span>
-            <h1 className="text-3xl font-bold text-gray-900 mt-1">{urun.urun_adi}</h1>
-          </div>
+        <aside className="min-w-0">
+          <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm sm:p-6 lg:sticky lg:top-24">
+            <div className="shop-eyebrow">
+              <Sparkles className="h-4 w-4" />
+              {urun.markalar?.marka_adi || urun.kategoriler?.kategori_adi || 'Efsane Baharat'}
+            </div>
+            <h1 className="mt-3 break-words text-3xl font-bold leading-tight text-zinc-950 sm:text-4xl">
+              {urun.urun_adi}
+            </h1>
+            {urun.aciklama && (
+              <p className="mt-4 text-sm leading-7 text-zinc-600 sm:text-base">{urun.aciklama}</p>
+            )}
 
-          {urun.aciklama && (
-            <p className="text-gray-600 mb-6">{urun.aciklama}</p>
-          )}
+            <div className="mt-5 rounded-lg bg-orange-50 p-4">
+              {iskontoInfo?.varMi ? (
+                <>
+                  <div className="text-sm font-bold text-zinc-500 line-through">{iskontoInfo.eskiFiyat.toFixed(2)} TL</div>
+                  <div className="mt-1 flex flex-wrap items-end justify-between gap-2">
+                    <span className="text-3xl font-bold text-zinc-950">{fiyat.toFixed(2)} TL</span>
+                    <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white">%{iskontoInfo.oran} indirim</span>
+                  </div>
+                </>
+              ) : (
+                <span className="text-3xl font-bold text-zinc-950">{fiyat.toFixed(2)} TL</span>
+              )}
+            </div>
 
-          <div className="bg-orange-50 p-4 rounded-lg mb-6">
-            {iskontoInfo?.varMi ? (
-              <div>
-                <p className="text-sm text-gray-600 line-through mb-1">
-                  Normal Fiyat: {iskontoInfo.eskiFiyat.toFixed(2)} ₺
-                </p>
-                <div className="flex items-center justify-between">
-                  <span className="text-3xl font-bold text-orange-600">
-                    {iskontoInfo.yeniFiyat.toFixed(2)} ₺
-                  </span>
-                  <span className="bg-red-600 text-white px-3 py-1 rounded-full text-sm font-semibold">
-                    %{iskontoInfo.oran} İndirim
-                  </span>
+            {urun.urun_stoklari && urun.urun_stoklari.length > 0 && (
+              <div className="mt-6">
+                <h2 className="text-sm font-bold text-zinc-950">Sorti seçimi</h2>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {urun.urun_stoklari.map((stok: any) => {
+                    const stokIskontoInfo = kademeliIskontoUygula(Number(stok.fiyat || 0), grupIskontoOrani, ozelIskontoOrani)
+                    const stokFiyat = stokIskontoInfo.varMi ? stokIskontoInfo.yeniFiyat : Number(stok.fiyat || 0)
+
+                    return (
+                      <button
+                        key={stok.id}
+                        type="button"
+                        onClick={() => selectStok(stok)}
+                        className={`min-h-[74px] rounded-lg border p-3 text-left transition ${secilenStok?.id === stok.id
+                          ? 'border-orange-600 bg-orange-50 shadow-sm'
+                          : 'border-zinc-200 bg-white hover:border-orange-300'
+                          }`}
+                      >
+                        <div className="font-bold text-zinc-950">
+                          {akilliBirimGoster(stok.birim_adedi || 1, stok.birim_adedi_turu || stok.birim_turu)}
+                        </div>
+                        <div className="mt-1 text-sm font-bold text-orange-700">{stokFiyat.toFixed(2)} TL</div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
-            ) : (
-              <span className="text-3xl font-bold text-orange-600">
-                {secilenStok?.fiyat.toFixed(2)} ₺
-              </span>
             )}
-          </div>
 
-          {/* Birim Seçimi */}
-          {urun.urun_stoklari && urun.urun_stoklari.length > 0 && (
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Birim Seçin
-              </label>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {urun.urun_stoklari.map((stok: any) => {
-                  const stokIskontoInfo = kademeliIskontoUygula(stok.fiyat, grupIskontoOrani, ozelIskontoOrani)
-                  return (
-                    <button
-                      key={stok.id}
-                      onClick={() => setSecilenStok(stok)}
-                      className={`p-3 border-2 rounded-lg transition ${secilenStok?.id === stok.id
-                        ? 'border-orange-600 bg-orange-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                    >
-                      <div className="font-semibold">
-                        {stok.birim_adedi || 100} {stok.birim_turu?.toUpperCase() || 'GR'}
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        {stokIskontoInfo.varMi ? (
-                          <>
-                            <span className="line-through mr-2">{stokIskontoInfo.eskiFiyat.toFixed(2)} ₺</span>
-                            <span className="text-orange-600 font-bold">
-                              {stokIskontoInfo.yeniFiyat.toFixed(2)} ₺
-                            </span>
-                          </>
-                        ) : (
-                          <span>{stok.fiyat.toFixed(2)} ₺</span>
-                        )}
-                      </div>
-                    </button>
-                  )
-                })}
+            <div className="mt-6">
+              <h2 className="text-sm font-bold text-zinc-950">Miktar</h2>
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMiktar(Math.max(minimumMiktar, miktar - 1))}
+                  disabled={miktar <= minimumMiktar}
+                  className="grid h-11 w-11 place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-800 disabled:opacity-40"
+                  aria-label="Miktarı azalt"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
+                <input
+                  type="number"
+                  value={miktar}
+                  onChange={(e) => setMiktar(Math.max(minimumMiktar, Number(e.target.value) || minimumMiktar))}
+                  min={minimumMiktar}
+                  className="shop-input w-24 text-center font-bold"
+                />
+                <button
+                  type="button"
+                  onClick={() => setMiktar(miktar + 1)}
+                  className="grid h-11 w-11 place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-800"
+                  aria-label="Miktarı artır"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+                <span className="text-xs font-semibold text-zinc-500">Min: {minimumMiktar}</span>
               </div>
             </div>
-          )}
 
-          {/* Miktar */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Miktar
-            </label>
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => setMiktar(Math.max(1, miktar - 1))}
-                className="w-10 h-10 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
-              >
-                -
-              </button>
-              <input
-                type="number"
-                value={miktar}
-                onChange={(e) => setMiktar(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-20 text-center border border-gray-300 rounded-lg py-2"
-                min="1"
-              />
-              <button
-                onClick={() => setMiktar(miktar + 1)}
-                className="w-10 h-10 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
-              >
-                +
-              </button>
-            </div>
-          </div>
+            <button
+              type="button"
+              onClick={handleSepeteEkle}
+              disabled={!secilenStok}
+              className={`mt-6 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg px-4 font-bold transition disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500 ${eklendi
+                ? 'bg-emerald-600 text-white'
+                : 'bg-zinc-950 text-white hover:bg-orange-700'
+                }`}
+            >
+              {eklendi ? <Check className="h-5 w-5" /> : <ShoppingCart className="h-5 w-5" />}
+              {eklendi ? 'Sepete eklendi' : 'Sepete ekle'}
+            </button>
 
-          {/* Sepete Ekle */}
-          <button
-            onClick={handleSepeteEkle}
-            disabled={!secilenStok}
-            className={`w-full py-4 rounded-lg font-semibold transition flex items-center justify-center space-x-2 ${eklendi
-              ? 'bg-green-600 text-white'
-              : 'bg-orange-600 text-white hover:bg-orange-700'
-              }`}
-          >
-            {eklendi ? (
-              <>
-                <Check className="w-5 h-5" />
-                <span>Sepete Eklendi</span>
-              </>
-            ) : (
-              <>
-                <ShoppingCart className="w-5 h-5" />
-                <span>Sepete Ekle</span>
-              </>
-            )}
-          </button>
-
-          {/* Ürün Detayları */}
-          <div className="mt-8 border-t pt-8">
-            <h3 className="font-semibold text-gray-900 mb-4">Ürün Detayları</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Kategori:</span>
-                <span className="font-medium">{urun.kategoriler?.kategori_adi}</span>
+            <div className="mt-6 border-t border-zinc-100 pt-5 text-sm">
+              <div className="flex justify-between gap-3 py-2">
+                <span className="text-zinc-500">Kategori</span>
+                <span className="min-w-0 text-right font-bold text-zinc-900">{urun.kategoriler?.kategori_adi || '-'}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Marka:</span>
-                <span className="font-medium">{urun.markalar?.marka_adi}</span>
+              <div className="flex justify-between gap-3 py-2">
+                <span className="text-zinc-500">Marka</span>
+                <span className="min-w-0 text-right font-bold text-zinc-900">{urun.markalar?.marka_adi || '-'}</span>
               </div>
             </div>
           </div>
-        </div>
+        </aside>
       </div>
 
-      {/* Ürün Hakkında Soru Modülü */}
-      <UrunSoruModul urunId={urun.id} urunAdi={urun.urun_adi} />
+      <div className="mt-8">
+        <UrunSoruModul urunId={urun.id} urunAdi={urun.urun_adi} />
+      </div>
     </div>
   )
 }

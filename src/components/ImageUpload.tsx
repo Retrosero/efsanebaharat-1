@@ -152,7 +152,9 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
       const publicUrl = data?.data?.publicUrl;
 
       if (data?.success && publicUrl) {
-        setPreviewUrls(prev => [...prev, publicUrl]);
+        const nextUrls = [...previewUrls, publicUrl];
+        setPreviewUrls(nextUrls);
+        onUploadComplete(nextUrls);
         toast.success('Görsel başarıyla yüklendi');
         setUrlInput('');
       } else {
@@ -170,16 +172,19 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   // Görsel silme
   const removeImage = (index: number) => {
     const imageToRemove = previewUrls[index];
+    const nextPreviewUrls = previewUrls.filter((_, i) => i !== index);
     
     // Eğer mevcut URL ise (http/https ile başlıyor), previewUrls'den kaldır
     if (imageToRemove && (imageToRemove.startsWith('http') || imageToRemove.startsWith('blob:'))) {
-      setPreviewUrls(prev => prev.filter((_, i) => i !== index));
+      setPreviewUrls(nextPreviewUrls);
     } else {
       // Yeni eklenen dosya ise hem preview hem file'dan kaldır
       const fileIndex = index - (previewUrls.length - selectedFiles.length);
-      setPreviewUrls(prev => prev.filter((_, i) => i !== index));
+      setPreviewUrls(nextPreviewUrls);
       setSelectedFiles(prev => prev.filter((_, i) => i !== fileIndex));
     }
+
+    onUploadComplete(nextPreviewUrls.filter(url => url.startsWith('http')));
   };
 
   // Upload işlemi

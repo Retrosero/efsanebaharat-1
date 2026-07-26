@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { Package, TrendingUp, ShoppingCart } from 'lucide-react'
+import { fetchInBatches } from '../utils/supabaseBatch'
 
 export default function BayiPanel() {
   const { user, musteriData, loading: authLoading } = useAuth()
@@ -48,11 +49,13 @@ export default function BayiPanel() {
 
     if (urunler && urunler.length > 0) {
       const urunIds = urunler.map(u => u.id)
-      const { data: stoklar } = await supabase
-        .from('urun_stoklari')
-        .select('*')
-        .in('urun_id', urunIds)
-        .eq('aktif_durum', true)
+      const { data: stoklar } = await fetchInBatches(urunIds, ids =>
+        supabase
+          .from('urun_stoklari')
+          .select('*')
+          .in('urun_id', ids)
+          .eq('aktif_durum', true)
+      )
 
       const urunlerWithStok = urunler.map(u => ({
         ...u,

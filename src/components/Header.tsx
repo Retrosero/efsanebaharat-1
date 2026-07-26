@@ -1,38 +1,36 @@
-import { Link, useNavigate } from 'react-router-dom'
-import { ShoppingCart, User, Search, Menu, X, ChevronDown } from 'lucide-react'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { ChevronDown, Menu, Search, ShoppingCart, Sparkles, User, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSepet } from '../contexts/SepetContext'
-import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { getImageUrl } from '../utils/imageUtils'
+import { getMatchingCategoryIds } from '../utils/categorySearch'
+
+const navLinks = [
+  { to: '/', label: 'Ana Sayfa' },
+  { to: '/urunler', label: 'Ürünler' },
+  { to: '/en-cok-satan', label: 'En Çok Satanlar' },
+  { to: '/kampanyalar', label: 'Kampanyalar' },
+  { to: '/bize-ulasin', label: 'İletişim' },
+]
 
 export default function Header() {
   const { user, isAdmin, musteriData, signOut } = useAuth()
-  const { sepetItems } = useSepet()
+  const { sepetItems, toplamAdet } = useSepet()
   const [menuOpen, setMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
-  const [showDropdown, setShowDropdown] = useState(false)
+  const [showCategoryMenu, setShowCategoryMenu] = useState(false)
+  const [showUserMenu, setShowUserMenu] = useState(false)
   const [kategoriler, setKategoriler] = useState<any[]>([])
-  const [showKategoriDropdown, setShowKategoriDropdown] = useState(false)
-  const [showUserDropdown, setShowUserDropdown] = useState(false)
-  const [kategoriTimeout, setKategoriTimeout] = useState<NodeJS.Timeout | null>(null)
-  const [userTimeout, setUserTimeout] = useState<NodeJS.Timeout | null>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     loadKategoriler()
   }, [])
-
-  // Cleanup timeouts
-  useEffect(() => {
-    return () => {
-      if (kategoriTimeout) clearTimeout(kategoriTimeout)
-      if (userTimeout) clearTimeout(userTimeout)
-    }
-  }, [kategoriTimeout, userTimeout])
 
   async function loadKategoriler() {
     const { data } = await supabase
@@ -45,233 +43,226 @@ export default function Header() {
     if (data) setKategoriler(data)
   }
 
-  // Real-time search fonksiyonu
   async function performSearch(query: string) {
-    if (query.trim().length < 1) {
+    const searchTerm = query.trim()
+    if (searchTerm.length < 2) {
       setSearchResults([])
-      setShowDropdown(false)
       return
     }
 
     setSearchLoading(true)
     try {
-      // Önce ürünleri al
-      const { data: urunler, error: urunlerError } = await supabase
-        .from('urunler')
-        .select('id, urun_adi, ana_gorsel_url')
+      const { data: allCategories } = await supabase
+        .from('kategoriler')
+        .select('id, kategori_adi, ust_kategori_id')
         .eq('aktif_durum', true)
-        .ilike('urun_adi', `${query}%`)
-        .limit(5)
 
-      if (urunlerError) throw urunlerError
+      const matchingCategoryIds = getMatchingCategoryIds(allCategories || [], searchTerm)
+      const categoryNameById = new Map((allCategories || []).map((category) => [category.id, category.kategori_adi]))
 
-      if (urunler) {
-        // Her ürün için stok bilgilerini al
-        const formattedResults = await Promise.all(
-          urunler.map(async (urun) => {
-            const { data: stoklar } = await supabase
-              .from('urun_stoklari')
-              .select('fiyat, birim_turu')
-              .eq('urun_id', urun.id)
-              .eq('aktif_durum', true)
-              .order('fiyat', { ascending: true })
-              .limit(1)
-              .single()
+      const nameSearch = supabase
+        .from('urunler')
+        .select('id, urun_adi, ana_gorsel_url, kategori_id')
+        .eq('aktif_durum', true)
+        .ilike('urun_adi', `%${searchTerm}%`)
+        .limit(8)
 
-            return {
-              ...urun,
-              ilkGorsel: urun.ana_gorsel_url,
-              ilkStok: stoklar
-            }
-          })
-        )
+      const categorySearch = matchingCategoryIds.length > 0
+        ? supabase
+          .from('urunler')
+          .select('id, urun_adi, ana_gorsel_url, kategori_id')
+          .eq('aktif_durum', true)
+          .in('kategori_id', matchingCategoryIds)
+          .order('urun_adi')
+          .limit(8)
+        : Promise.resolve({ data: [] })
 
-        setSearchResults(formattedResults)
-        setShowDropdown(true)
-      } else {
-        setSearchResults([])
-        setShowDropdown(false)
+      const [{ data: nameMatches }, { data: categoryMatches }] = await Promise.all([nameSearch, categorySearch])
+
+      const mergedProducts = new Map<string, any>()
+      for (const product of [...(nameMatches || []), ...(categoryMatches || [])]) {
+        if (!mergedProducts.has(product.id)) {
+          mergedProducts.set(product.id, product)
+        }
       }
+
+      const urunler = [...mergedProducts.values()].slice(0, 6)
+      if (urunler.length === 0) {
+        setSearchResults([])
+        return
+      }
+
+      const results = await Promise.all(
+        urunler.map(async (urun) => {
+          const { data: stok } = await supabase
+            .from('urun_stoklari')
+            .select('fiyat, birim_turu')
+            .eq('urun_id', urun.id)
+            .eq('aktif_durum', true)
+            .order('fiyat', { ascending: true })
+            .limit(1)
+            .maybeSingle()
+
+          return { ...urun, ilkStok: stok, kategoriAdi: categoryNameById.get(urun.kategori_id) }
+        }),
+      )
+
+      setSearchResults(results)
     } catch (error) {
       console.error('Arama hatası:', error)
       setSearchResults([])
-      setShowDropdown(false)
     } finally {
       setSearchLoading(false)
     }
   }
 
-  function handleSearch(e: React.FormEvent) {
+  function handleSearchSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (searchQuery.trim()) {
-      navigate(`/urunler?q=${encodeURIComponent(searchQuery.trim())}`)
-      setSearchQuery('')
-      setSearchResults([])
-      setShowDropdown(false)
-      setSearchOpen(false)
-    }
+    const query = searchQuery.trim()
+    if (!query) return
+
+    navigate(`/urunler?q=${encodeURIComponent(query)}`)
+    setSearchQuery('')
+    setSearchResults([])
+    setSearchOpen(false)
+    setMenuOpen(false)
   }
 
-  // Arama input değişikliği için handler
-  function handleSearchInputChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const value = e.target.value
+  function handleSearchChange(value: string) {
     setSearchQuery(value)
     performSearch(value)
   }
 
-  // Dropdown kapatma
-  function closeDropdown() {
-    setShowDropdown(false)
+  function closeMenus() {
+    setMenuOpen(false)
+    setSearchOpen(false)
+    setShowCategoryMenu(false)
+    setShowUserMenu(false)
+    setSearchResults([])
   }
 
-  // Arama sonucuna tıklama
-  function handleResultClick(urunId: string) {
-    navigate(`/urun/${urunId}`)
-    setSearchQuery('')
-    setSearchResults([])
-    setShowDropdown(false)
-    setSearchOpen(false)
-  }
+  const cartCount = toplamAdet || sepetItems.length
 
   return (
-    <header className="bg-white shadow-sm sticky top-0 z-50">
-      <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo */}
-          <Link to="/" className="flex items-center space-x-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-xl">E</span>
+    <header className="sticky top-0 z-50 border-b border-zinc-200 bg-white/95 backdrop-blur">
+      <div className="shop-container">
+        <div className="flex h-16 items-center justify-between gap-3">
+          <Link to="/" className="flex min-w-0 items-center gap-3" onClick={closeMenus}>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-800 text-white shadow-sm">
+              <Sparkles className="h-5 w-5" />
             </div>
-            <span className="text-2xl font-bold text-gray-900">EfsaneBaharat</span>
+            <div className="min-w-0">
+              <div className="truncate text-lg font-bold tracking-tight text-zinc-950 sm:text-xl">Efsane Baharat</div>
+              <div className="hidden text-xs font-medium text-zinc-500 sm:block">Premium baharat ve gıda</div>
+            </div>
           </Link>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center space-x-8">
-            <Link to="/" className="text-gray-700 hover:text-orange-600 transition">
-              Ana Sayfa
-            </Link>
-            <Link to="/urunler" className="text-gray-700 hover:text-orange-600 transition">
-              Ürünler
-            </Link>
+          <nav className="hidden items-center gap-1 lg:flex">
+            {navLinks.map((link) => (
+              <NavLink
+                key={link.to}
+                to={link.to}
+                className={({ isActive }) =>
+                  `rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                    isActive ? 'bg-emerald-50 text-emerald-900' : 'text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950'
+                  }`
+                }
+              >
+                {link.label}
+              </NavLink>
+            ))}
 
-            {/* Kategoriler Dropdown */}
-            <div
-              className="relative"
-              onMouseEnter={() => {
-                if (kategoriTimeout) clearTimeout(kategoriTimeout)
-                setShowKategoriDropdown(true)
-              }}
-              onMouseLeave={() => {
-                const timeout = setTimeout(() => setShowKategoriDropdown(false), 200)
-                setKategoriTimeout(timeout)
-              }}
-            >
-              <button className="flex items-center space-x-1 text-gray-700 hover:text-orange-600 transition">
-                <span>Kategoriler</span>
-                <ChevronDown className="w-4 h-4" />
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowCategoryMenu((value) => !value)}
+                className="flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-950"
+              >
+                Kategoriler
+                <ChevronDown className="h-4 w-4" />
               </button>
-              {showKategoriDropdown && (
-                <div className="absolute left-0 mt-2 w-56 bg-white rounded-lg shadow-lg py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                  <Link
-                    to="/urunler"
-                    className="block px-4 py-2 text-gray-700 hover:bg-gray-100 transition"
-                    onClick={() => setShowKategoriDropdown(false)}
-                  >
-                    Tüm Ürünler
+              {showCategoryMenu && (
+                <div className="absolute right-0 mt-2 w-64 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xl">
+                  <Link to="/urunler" onClick={closeMenus} className="block px-4 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">
+                    Tüm ürünler
                   </Link>
-                  <div className="border-t my-1"></div>
-                  {kategoriler.map((kategori) => (
-                    <Link
-                      key={kategori.id}
-                      to={`/urunler?kategori=${kategori.id}`}
-                      className="block px-4 py-2 text-gray-700 hover:bg-gray-100 transition"
-                      onClick={() => setShowKategoriDropdown(false)}
-                    >
-                      {kategori.kategori_adi}
-                    </Link>
-                  ))}
+                  <div className="max-h-80 overflow-y-auto border-t border-zinc-100 py-1">
+                    {kategoriler.map((kategori) => (
+                      <Link
+                        key={kategori.id}
+                        to={`/urunler?kategori=${kategori.id}`}
+                        onClick={closeMenus}
+                        className="block px-4 py-2 text-sm text-zinc-700 hover:bg-emerald-50 hover:text-emerald-900"
+                      >
+                        {kategori.kategori_adi}
+                      </Link>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
 
-            <Link to="/en-cok-satan" className="text-gray-700 hover:text-orange-600 transition">
-              En Çok Satan Ürünler
-            </Link>
-            <Link to="/kampanyalar" className="text-gray-700 hover:text-orange-600 transition">
-              Kampanyalar
-            </Link>
-            <Link to="/bize-ulasin" className="text-gray-700 hover:text-orange-600 transition">
-              Bize Ulaşın
-            </Link>
             {user && musteriData?.musteri_tipi === 'bayi' && (
-              <Link to="/bayi-panel" className="text-gray-700 hover:text-orange-600 transition">
+              <NavLink to="/bayi-panel" className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100">
                 Bayi Paneli
-              </Link>
+              </NavLink>
             )}
             {isAdmin && (
-              <Link to="/admin" className="text-gray-700 hover:text-orange-600 transition">
-                Admin Paneli
-              </Link>
+              <NavLink to="/admin" className="rounded-lg px-3 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-50">
+                Admin
+              </NavLink>
             )}
           </nav>
 
-          {/* Right side actions */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center gap-1 sm:gap-2">
             <button
-              onClick={() => setSearchOpen(!searchOpen)}
-              className="hidden md:block text-gray-600 hover:text-orange-600 transition"
-              title="Arama"
+              type="button"
+              onClick={() => setSearchOpen((value) => !value)}
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-700 transition hover:bg-zinc-100"
+              aria-label="Arama"
             >
-              <Search className="w-5 h-5" />
+              <Search className="h-5 w-5" />
             </button>
 
-            <Link to="/sepet" className="relative text-gray-600 hover:text-orange-600 transition">
-              <ShoppingCart className="w-5 h-5" />
-              {sepetItems.length > 0 && (
-                <span className="absolute -top-2 -right-2 bg-orange-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                  {sepetItems.length}
+            <Link
+              to="/sepet"
+              onClick={closeMenus}
+              className="relative flex h-10 w-10 items-center justify-center rounded-lg text-zinc-700 transition hover:bg-zinc-100"
+              aria-label="Sepet"
+            >
+              <ShoppingCart className="h-5 w-5" />
+              {cartCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-600 px-1 text-[11px] font-bold text-white">
+                  {cartCount}
                 </span>
               )}
             </Link>
 
             {user ? (
-              <div
-                className="relative"
-                onMouseEnter={() => {
-                  if (userTimeout) clearTimeout(userTimeout)
-                  setShowUserDropdown(true)
-                }}
-                onMouseLeave={() => {
-                  const timeout = setTimeout(() => setShowUserDropdown(false), 200)
-                  setUserTimeout(timeout)
-                }}
-              >
-                <button className="flex items-center space-x-2 text-gray-700 hover:text-orange-600 transition">
-                  <User className="w-5 h-5" />
-                  <span className="hidden md:block">Hesabım</span>
+              <div className="relative hidden sm:block">
+                <button
+                  type="button"
+                  onClick={() => setShowUserMenu((value) => !value)}
+                  className="flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
+                >
+                  <User className="h-5 w-5" />
+                  Hesabım
                 </button>
-                {showUserDropdown && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                    <Link
-                      to="/hesabim"
-                      className="block px-4 py-2 text-gray-700 hover:bg-gray-100 transition"
-                      onClick={() => setShowUserDropdown(false)}
-                    >
+                {showUserMenu && (
+                  <div className="absolute right-0 mt-2 w-48 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xl">
+                    <Link to="/hesabim" onClick={closeMenus} className="block px-4 py-3 text-sm text-zinc-700 hover:bg-zinc-50">
                       Profilim
                     </Link>
-                    <Link
-                      to="/sorularim"
-                      className="block px-4 py-2 text-gray-700 hover:bg-gray-100 transition"
-                      onClick={() => setShowUserDropdown(false)}
-                    >
+                    <Link to="/sorularim" onClick={closeMenus} className="block px-4 py-3 text-sm text-zinc-700 hover:bg-zinc-50">
                       Sorularım
                     </Link>
                     <button
+                      type="button"
                       onClick={() => {
-                        setShowUserDropdown(false)
+                        closeMenus()
                         signOut()
                       }}
-                      className="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100 transition"
+                      className="block w-full px-4 py-3 text-left text-sm text-zinc-700 hover:bg-zinc-50"
                     >
                       Çıkış Yap
                     </button>
@@ -279,335 +270,111 @@ export default function Header() {
                 )}
               </div>
             ) : (
-              <Link
-                to="/giris"
-                className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition"
-              >
+              <Link to="/giris" onClick={closeMenus} className="hidden rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-900 sm:inline-flex">
                 Giriş Yap
               </Link>
             )}
 
             <button
-              className="md:hidden text-gray-600"
-              onClick={() => setMenuOpen(!menuOpen)}
+              type="button"
+              onClick={() => setMenuOpen((value) => !value)}
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-700 transition hover:bg-zinc-100 lg:hidden"
+              aria-label="Menu"
             >
-              <Menu className="w-6 h-6" />
+              {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
           </div>
         </div>
 
-        {/* Search Bar */}
         {searchOpen && (
-          <div className="hidden md:block py-4 border-t animate-in slide-in-from-top relative">
-            <form onSubmit={handleSearch} className="flex gap-2">
-              <div className="flex-1 relative">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={handleSearchInputChange}
-                  placeholder="Ürün ara..."
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  autoFocus
-                />
-
-                {/* Arama Sonuçları Dropdown */}
-                {showDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
-                    {searchLoading ? (
-                      <div className="p-4 text-center text-gray-500">
-                        <div className="inline-block w-5 h-5 border-2 border-orange-600 border-t-transparent rounded-full animate-spin"></div>
-                        <span className="ml-2">Aranıyor...</span>
-                      </div>
-                    ) : searchResults.length > 0 ? (
-                      <div className="py-2">
-                        {searchResults.map((urun) => (
-                          <div
-                            key={urun.id}
-                            onClick={() => handleResultClick(urun.id)}
-                            className="flex items-center space-x-3 px-4 py-3 hover:bg-gray-50 cursor-pointer transition"
-                          >
-                            <div className="w-12 h-12 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-                              {urun.ilkGorsel ? (
-                                <img
-                                  src={urun.ilkGorsel}
-                                  alt={urun.urun_adi}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-500 to-red-600">
-                                  <span className="text-white text-lg font-bold">
-                                    {urun.urun_adi.charAt(0)}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <h4 className="text-sm font-medium text-gray-900 truncate">
-                                {urun.urun_adi}
-                              </h4>
-                              {urun.ilkStok && (
-                                <div className="flex items-center space-x-2">
-                                  <span className="text-sm text-orange-600 font-semibold">
-                                    {urun.ilkStok.fiyat.toFixed(2)} ₺
-                                  </span>
-                                  <span className="text-xs text-gray-500">
-                                    {urun.ilkStok.birim_turu}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-
-                        {/* Tüm sonuçları gör linki */}
-                        {searchQuery.trim().length >= 2 && (
-                          <div className="border-t border-gray-100">
-                            <button
-                              type="submit"
-                              className="w-full text-left px-4 py-3 text-sm text-orange-600 hover:bg-orange-50 font-medium transition"
-                              onClick={() => {
-                                navigate(`/urunler?q=${encodeURIComponent(searchQuery.trim())}`)
-                                setSearchQuery('')
-                                setSearchResults([])
-                                setShowDropdown(false)
-                                setSearchOpen(false)
-                              }}
-                            >
-                              Tüm sonuçları gör ("{searchQuery}")
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ) : searchQuery.trim().length >= 2 ? (
-                      <div className="p-4 text-center text-gray-500">
-                        <Search className="w-6 h-6 mx-auto mb-2 text-gray-400" />
-                        <span>Ürün bulunamadı</span>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-
-              <button
-                type="submit"
-                className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition flex items-center gap-2"
-              >
-                <Search className="w-4 h-4" />
+          <div className="border-t border-zinc-100 py-4">
+            <form onSubmit={handleSearchSubmit} className="relative mx-auto max-w-3xl">
+              <Search className="absolute left-4 top-3.5 h-5 w-5 text-zinc-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Baharat, kategori veya ürün ara..."
+                className="shop-input pl-12 pr-24"
+                autoFocus
+              />
+              <button type="submit" className="absolute right-1.5 top-1.5 min-h-0 rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white">
                 Ara
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchOpen(false)
-                  setSearchResults([])
-                  setShowDropdown(false)
-                  setSearchQuery('')
-                }}
-                className="px-4 py-2 text-gray-600 hover:text-gray-900 transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </form>
 
-            {/* Dropdown dışına tıklandığında kapatmak için overlay */}
-            {showDropdown && (
-              <div
-                className="fixed inset-0 z-40"
-                onClick={closeDropdown}
-              />
-            )}
+              {(searchResults.length > 0 || searchLoading || searchQuery.trim().length >= 2) && (
+                <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xl">
+                  {searchLoading ? (
+                    <div className="px-4 py-5 text-center text-sm text-zinc-500">Aranıyor...</div>
+                  ) : searchResults.length > 0 ? (
+                    <div className="divide-y divide-zinc-100">
+                      {searchResults.map((urun) => (
+                        <button
+                          key={urun.id}
+                          type="button"
+                          onClick={() => {
+                            navigate(`/urun/${urun.id}`)
+                            closeMenus()
+                          }}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-zinc-50"
+                        >
+                          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-zinc-100">
+                            {urun.ana_gorsel_url ? (
+                              <img src={getImageUrl(urun.ana_gorsel_url)} alt={urun.urun_adi} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center bg-emerald-800 text-white">{urun.urun_adi.charAt(0)}</div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-semibold text-zinc-900">{urun.urun_adi}</div>
+                            {urun.kategoriAdi && <div className="truncate text-xs text-zinc-500">{urun.kategoriAdi}</div>}
+                            {urun.ilkStok && <div className="text-sm font-bold text-amber-700">{Number(urun.ilkStok.fiyat).toFixed(2)} TL</div>}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-4 py-5 text-center text-sm text-zinc-500">Ürün bulunamadı</div>
+                  )}
+                </div>
+              )}
+            </form>
           </div>
         )}
 
-        {/* Mobile menu */}
         {menuOpen && (
-          <div className="md:hidden py-4 border-t">
-            {/* Mobile Search */}
-            <div className="mb-4 relative">
-              <form onSubmit={handleSearch} className="flex gap-2">
-                <div className="flex-1 relative">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={handleSearchInputChange}
-                    placeholder="Ürün ara..."
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  />
-
-                  {/* Mobile Arama Sonuçları Dropdown */}
-                  {showDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-80 overflow-y-auto">
-                      {searchLoading ? (
-                        <div className="p-4 text-center text-gray-500">
-                          <div className="inline-block w-5 h-5 border-2 border-orange-600 border-t-transparent rounded-full animate-spin"></div>
-                          <span className="ml-2">Aranıyor...</span>
-                        </div>
-                      ) : searchResults.length > 0 ? (
-                        <div className="py-2">
-                          {searchResults.map((urun) => (
-                            <div
-                              key={urun.id}
-                              onClick={() => handleResultClick(urun.id)}
-                              className="flex items-center space-x-3 px-4 py-3 hover:bg-gray-50 cursor-pointer transition"
-                            >
-                              <div className="w-12 h-12 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-                                {urun.ilkGorsel ? (
-                                  <img
-                                    src={getImageUrl(urun.ilkGorsel)}
-                                    alt={urun.urun_adi}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-500 to-red-600">
-                                    <span className="text-white text-lg font-bold">
-                                      {urun.urun_adi.charAt(0)}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <h4 className="text-sm font-medium text-gray-900 truncate">
-                                  {urun.urun_adi}
-                                </h4>
-                                {urun.ilkStok && (
-                                  <div className="flex items-center space-x-2">
-                                    <span className="text-sm text-orange-600 font-semibold">
-                                      {urun.ilkStok.fiyat.toFixed(2)} ₺
-                                    </span>
-                                    <span className="text-xs text-gray-500">
-                                      {urun.ilkStok.birim_turu}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-
-                          {/* Tüm sonuçları gör linki */}
-                          {searchQuery.trim().length >= 2 && (
-                            <div className="border-t border-gray-100">
-                              <button
-                                type="submit"
-                                className="w-full text-left px-4 py-3 text-sm text-orange-600 hover:bg-orange-50 font-medium transition"
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  navigate(`/urunler?q=${encodeURIComponent(searchQuery.trim())}`)
-                                  setSearchQuery('')
-                                  setSearchResults([])
-                                  setShowDropdown(false)
-                                  setMenuOpen(false)
-                                }}
-                              >
-                                Tüm sonuçları gör ("{searchQuery}")
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ) : searchQuery.trim().length >= 2 ? (
-                        <div className="p-4 text-center text-gray-500">
-                          <Search className="w-6 h-6 mx-auto mb-2 text-gray-400" />
-                          <span>Ürün bulunamadı</span>
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
+          <div className="border-t border-zinc-100 py-4 lg:hidden">
+            <div className="grid gap-1">
+              {navLinks.map((link) => (
+                <Link key={link.to} to={link.to} onClick={closeMenus} className="rounded-lg px-3 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-100">
+                  {link.label}
+                </Link>
+              ))}
+              <div className="rounded-lg bg-zinc-50 p-3">
+                <div className="mb-2 text-xs font-bold uppercase tracking-wide text-zinc-500">Kategoriler</div>
+                <div className="grid gap-1">
+                  {kategoriler.slice(0, 8).map((kategori) => (
+                    <Link key={kategori.id} to={`/urunler?kategori=${kategori.id}`} onClick={closeMenus} className="rounded-md px-2 py-2 text-sm text-zinc-700 hover:bg-white">
+                      {kategori.kategori_adi}
+                    </Link>
+                  ))}
                 </div>
-
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition"
-                >
-                  <Search className="w-5 h-5" />
-                </button>
-              </form>
-
-              {/* Dropdown dışına tıklandığında kapatmak için overlay */}
-              {showDropdown && (
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={closeDropdown}
-                />
+              </div>
+              {user ? (
+                <>
+                  <Link to="/hesabim" onClick={closeMenus} className="rounded-lg px-3 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-100">
+                    Hesabım
+                  </Link>
+                  <button type="button" onClick={() => { closeMenus(); signOut() }} className="rounded-lg px-3 py-3 text-left text-sm font-semibold text-zinc-800 hover:bg-zinc-100">
+                    Çıkış Yap
+                  </button>
+                </>
+              ) : (
+                <Link to="/giris" onClick={closeMenus} className="shop-btn-primary mt-2">
+                  Giriş Yap
+                </Link>
               )}
             </div>
-
-            <Link
-              to="/"
-              className="block py-2 text-gray-700 hover:text-orange-600"
-              onClick={() => setMenuOpen(false)}
-            >
-              Ana Sayfa
-            </Link>
-            <Link
-              to="/urunler"
-              className="block py-2 text-gray-700 hover:text-orange-600"
-              onClick={() => setMenuOpen(false)}
-            >
-              Ürünler
-            </Link>
-
-            {/* Kategoriler - Mobile */}
-            <div className="py-2">
-              <div className="font-semibold text-gray-900 mb-2">Kategoriler</div>
-              <div className="pl-4 space-y-2">
-                <Link
-                  to="/urunler"
-                  className="block py-1 text-gray-700 hover:text-orange-600"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  Tüm Ürünler
-                </Link>
-                {kategoriler.map((kategori) => (
-                  <Link
-                    key={kategori.id}
-                    to={`/urunler?kategori=${kategori.id}`}
-                    className="block py-1 text-gray-700 hover:text-orange-600"
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    {kategori.kategori_adi}
-                  </Link>
-                ))}
-              </div>
-            </div>
-
-            <Link
-              to="/en-cok-satan"
-              className="block py-2 text-gray-700 hover:text-orange-600"
-              onClick={() => setMenuOpen(false)}
-            >
-              En Çok Satan Ürünler
-            </Link>
-            <Link
-              to="/kampanyalar"
-              className="block py-2 text-gray-700 hover:text-orange-600"
-              onClick={() => setMenuOpen(false)}
-            >
-              Kampanyalar
-            </Link>
-            <Link
-              to="/bize-ulasin"
-              className="block py-2 text-gray-700 hover:text-orange-600"
-              onClick={() => setMenuOpen(false)}
-            >
-              Bize Ulaşın
-            </Link>
-            {user && musteriData?.musteri_tipi === 'bayi' && (
-              <Link
-                to="/bayi-panel"
-                className="block py-2 text-gray-700 hover:text-orange-600"
-                onClick={() => setMenuOpen(false)}
-              >
-                Bayi Paneli
-              </Link>
-            )}
-            {isAdmin && (
-              <Link
-                to="/admin"
-                className="block py-2 text-gray-700 hover:text-orange-600"
-                onClick={() => setMenuOpen(false)}
-              >
-                Admin Paneli
-              </Link>
-            )}
           </div>
         )}
       </div>
