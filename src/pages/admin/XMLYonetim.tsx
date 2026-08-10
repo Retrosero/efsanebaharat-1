@@ -55,6 +55,16 @@ interface XMLImportResult {
     }>
 }
 
+interface XMLImportSource {
+    id: string
+    name: string
+    url: string
+    allowed_hosts: string[]
+    update_interval_minutes: number
+    is_active: boolean
+    last_imported_at: string | null
+}
+
 export default function XMLYonetim() {
     const [loading, setLoading] = useState(true)
     const [generating, setGenerating] = useState(false)
@@ -70,8 +80,12 @@ export default function XMLYonetim() {
         warnings: []
     })
     const [checking, setChecking] = useState(false)
-    const [importUrl, setImportUrl] = useState('http://panel.efsanebaharat.com/urunler.xml')
-    const [importAllowedHosts, setImportAllowedHosts] = useState('panel.efsanebaharat.com')
+    const [importUrl, setImportUrl] = useState('https://efsanebaharat.appsgo.cloud/urunler.xml')
+    const [importAllowedHosts, setImportAllowedHosts] = useState('efsanebaharat.appsgo.cloud')
+    const [importSourceName, setImportSourceName] = useState('Varsayılan kaynak')
+    const [updateIntervalMinutes, setUpdateIntervalMinutes] = useState(30)
+    const [importSources, setImportSources] = useState<XMLImportSource[]>([])
+    const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
     const [importing, setImporting] = useState(false)
     const [importResult, setImportResult] = useState<XMLImportResult | null>(null)
 
@@ -96,6 +110,26 @@ export default function XMLYonetim() {
             }
             if (Array.isArray(settings?.import_allowed_hosts)) {
                 setImportAllowedHosts(settings.import_allowed_hosts.join(', '))
+            }
+
+            const { data: sources, error: sourcesError } = await supabase
+                .from('xml_import_sources')
+                .select('*')
+                .order('created_at', { ascending: true })
+
+            // Migration henüz çalıştırılmadıysa mevcut tek kaynak ayarıyla çalışmaya devam et.
+            if (!sourcesError && sources) {
+                setImportSources(sources)
+                const currentSource = sources.find(source => source.id === selectedSourceId) || sources.find(source => source.is_active) || sources[0]
+                if (currentSource) {
+                    setSelectedSourceId(currentSource.id)
+                    setImportSourceName(currentSource.name)
+                    setImportUrl(currentSource.url)
+                    setImportAllowedHosts(currentSource.allowed_hosts?.join(', ') || '')
+                    setUpdateIntervalMinutes(currentSource.update_interval_minutes || 30)
+                }
+            } else if (settings) {
+                setUpdateIntervalMinutes(settings.update_interval_minutes || 30)
             }
 
             // XML'e seçili ürünleri çek
@@ -372,13 +406,42 @@ export default function XMLYonetim() {
             return
         }
 
+        const interval = Number(updateIntervalMinutes)
+        if (!Number.isInteger(interval) || interval < 1 || interval > 10080) {
+            toast.error('Güncelleme süresi 1 ile 10080 dakika arasında olmalı')
+            return
+        }
+
         try {
+            const sourcePayload = {
+                name: importSourceName.trim() || 'İsimsiz kaynak',
+                url: importUrl.trim(),
+                allowed_hosts: hosts,
+                update_interval_minutes: interval,
+                is_active: true,
+                updated_at: new Date().toISOString()
+            }
+
+            const { data: savedSource, error: sourceError } = selectedSourceId
+                ? await supabase.from('xml_import_sources').update(sourcePayload).eq('id', selectedSourceId).select().maybeSingle()
+                : await supabase.from('xml_import_sources').insert(sourcePayload).select().maybeSingle()
+
+            if (sourceError) throw sourceError
+            if (savedSource) {
+                setSelectedSourceId(savedSource.id)
+                setImportSources(current => {
+                    const index = current.findIndex(source => source.id === savedSource.id)
+                    return index === -1 ? [...current, savedSource] : current.map(source => source.id === savedSource.id ? savedSource : source)
+                })
+            }
+
             if (xmlSettings?.id) {
                 const { data, error } = await supabase
                     .from('bayi_xml_settings')
                     .update({
                         import_url: importUrl.trim(),
                         import_allowed_hosts: hosts,
+                        update_interval_minutes: interval,
                         updated_at: new Date().toISOString()
                     })
                     .eq('id', xmlSettings.id)
@@ -396,7 +459,7 @@ export default function XMLYonetim() {
                         import_url: importUrl.trim(),
                         import_allowed_hosts: hosts,
                         auto_update_enabled: false,
-                        update_interval_minutes: 15
+                        update_interval_minutes: interval
                     })
                     .select()
                     .maybeSingle()
@@ -405,11 +468,32 @@ export default function XMLYonetim() {
                 if (data) setXmlSettings(data)
             }
 
-            toast.success('XML ayarlarÄ± kaydedildi')
+            toast.success('XML kaynağı ve güncelleme ayarları kaydedildi')
         } catch (error: any) {
             console.error('XML ayarlarÄ± kaydedilemedi:', error)
             toast.error(error.message || 'XML ayarlarÄ± kaydedilemedi')
         }
+    }
+
+    function handleSelectSource(sourceId: string) {
+        const source = importSources.find(item => item.id === sourceId)
+        if (!source) return
+
+        setSelectedSourceId(source.id)
+        setImportSourceName(source.name)
+        setImportUrl(source.url)
+        setImportAllowedHosts(source.allowed_hosts?.join(', ') || '')
+        setUpdateIntervalMinutes(source.update_interval_minutes || 15)
+        setImportResult(null)
+    }
+
+    function handleNewSource() {
+        setSelectedSourceId(null)
+        setImportSourceName('')
+        setImportUrl('')
+        setImportAllowedHosts('')
+        setUpdateIntervalMinutes(30)
+        setImportResult(null)
     }
 
     async function handleGenerateNewToken() {
@@ -435,7 +519,7 @@ export default function XMLYonetim() {
                     .insert({
                         xml_token: newToken,
                         auto_update_enabled: false,
-                        update_interval_minutes: 15,
+                        update_interval_minutes: 30,
                         import_url: importUrl.trim(),
                         import_allowed_hosts: importAllowedHosts.split(',').map(host => host.trim().toLowerCase()).filter(Boolean)
                     })
@@ -483,7 +567,8 @@ export default function XMLYonetim() {
                 setImportResult(data)
                 toast.success(`XML okundu: ${data?.totalInXml || data?.parsed || 0} ürün bulundu`)
             } else {
-                const batchSize = 75
+                // Büyük partiler, aynı XML dosyasının tekrar tekrar indirilmesini önemli ölçüde azaltır.
+                const batchSize = 500
                 let offset = 0
                 let totalInXml: number | null = null
                 const aggregate = {
@@ -529,6 +614,15 @@ export default function XMLYonetim() {
                 }
 
                 setImportResult(aggregate)
+                if (selectedSourceId) {
+                    const importedAt = new Date().toISOString()
+                    const { error: sourceError } = await supabase
+                        .from('xml_import_sources')
+                        .update({ last_imported_at: importedAt })
+                        .eq('id', selectedSourceId)
+                    if (sourceError) console.warn('Kaynak son güncelleme zamanı kaydedilemedi:', sourceError)
+                    setImportSources(current => current.map(source => source.id === selectedSourceId ? { ...source, last_imported_at: importedAt } : source))
+                }
                 toast.success(`XML içe aktarıldı: ${aggregate.createdProducts} yeni, ${aggregate.updatedProducts} güncel ürün`)
                 await loadData()
             }
@@ -599,6 +693,42 @@ export default function XMLYonetim() {
                 </div>
 
                 <div className="mt-4">
+                    <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end">
+                        <label className="block flex-1 text-sm font-medium text-gray-700">
+                            Kayıtlı XML Kaynakları
+                            <select
+                                value={selectedSourceId || ''}
+                                onChange={(e) => handleSelectSource(e.target.value)}
+                                className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100"
+                            >
+                                <option value="">Yeni XML kaynağı</option>
+                                {importSources.map(source => (
+                                    <option key={source.id} value={source.id}>{source.name}</option>
+                                ))}
+                            </select>
+                        </label>
+                        <button
+                            type="button"
+                            onClick={handleNewSource}
+                            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                        >
+                            Yeni Kaynak Ekle
+                        </button>
+                    </div>
+
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Kaynak Adı
+                    </label>
+                    <input
+                        type="text"
+                        value={importSourceName}
+                        onChange={(e) => setImportSourceName(e.target.value)}
+                        placeholder="Örn. Ana tedarikçi"
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100"
+                    />
+                </div>
+
+                <div className="mt-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                         XML Kaynağı
                     </label>
@@ -627,12 +757,28 @@ export default function XMLYonetim() {
                             onClick={handleSaveImportSettings}
                             className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
                         >
-                            Ayarlari Kaydet
+                            Kaynağı Kaydet
                         </button>
                     </div>
                     <p className="mt-1 text-xs text-gray-500">
-                        Duzenli XML importu icin kaynak domain burada izinli olmalidir.
+                        Düzenli XML içe aktarması için kaynak domain burada izinli olmalıdır.
                     </p>
+                </div>
+
+                <div className="mt-4 max-w-xs">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        XML Güncelleme Süresi (dakika)
+                    </label>
+                    <input
+                        type="number"
+                        min="1"
+                        max="10080"
+                        step="1"
+                        value={updateIntervalMinutes}
+                        onChange={(e) => setUpdateIntervalMinutes(Number(e.target.value))}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Her kaynak için ayrı süre belirleyebilirsiniz.</p>
                 </div>
 
                 {importResult && (
