@@ -1,11 +1,16 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { ChevronDown, Menu, Search, ShoppingCart, Sparkles, User, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSepet } from '../contexts/SepetContext'
 import { supabase } from '../lib/supabase'
 import { getImageUrl } from '../utils/imageUtils'
-import { getMatchingCategoryIds } from '../utils/categorySearch'
+import {
+  buildProductSearchPostgrestFilter,
+  getMatchingBrandIds,
+  getMatchingCategoryIds,
+  scoreProductRelevance,
+} from '../utils/categorySearch'
 
 const navLinks = [
   { to: '/', label: 'Ana Sayfa' },
@@ -28,8 +33,31 @@ export default function Header() {
   const [kategoriler, setKategoriler] = useState<any[]>([])
   const navigate = useNavigate()
 
+  const searchContainerRef = useRef<HTMLDivElement>(null)
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
   useEffect(() => {
     loadKategoriler()
+  }, [])
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setSearchResults([])
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setSearchOpen(false)
+        setSearchResults([])
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [])
 
   async function loadKategoriler() {
@@ -47,50 +75,43 @@ export default function Header() {
     const searchTerm = query.trim()
     if (searchTerm.length < 2) {
       setSearchResults([])
+      setSearchLoading(false)
       return
     }
 
     setSearchLoading(true)
     try {
-      const { data: allCategories } = await supabase
-        .from('kategoriler')
-        .select('id, kategori_adi, ust_kategori_id')
-        .eq('aktif_durum', true)
+      const [{ data: allCategories }, { data: allBrands }] = await Promise.all([
+        supabase.from('kategoriler').select('id, kategori_adi, ust_kategori_id').eq('aktif_durum', true),
+        supabase.from('markalar').select('id, marka_adi').eq('aktif_durum', true),
+      ])
 
       const matchingCategoryIds = getMatchingCategoryIds(allCategories || [], searchTerm)
+      const matchingBrandIds = getMatchingBrandIds(allBrands || [], searchTerm)
       const categoryNameById = new Map((allCategories || []).map((category) => [category.id, category.kategori_adi]))
 
-      const nameSearch = supabase
-        .from('urunler')
-        .select('id, urun_adi, ana_gorsel_url, kategori_id')
-        .eq('aktif_durum', true)
-        .ilike('urun_adi', `%${searchTerm}%`)
-        .limit(8)
-
-      const categorySearch = matchingCategoryIds.length > 0
-        ? supabase
-          .from('urunler')
-          .select('id, urun_adi, ana_gorsel_url, kategori_id')
-          .eq('aktif_durum', true)
-          .in('kategori_id', matchingCategoryIds)
-          .order('urun_adi')
-          .limit(8)
-        : Promise.resolve({ data: [] })
-
-      const [{ data: nameMatches }, { data: categoryMatches }] = await Promise.all([nameSearch, categorySearch])
-
-      const mergedProducts = new Map<string, any>()
-      for (const product of [...(nameMatches || []), ...(categoryMatches || [])]) {
-        if (!mergedProducts.has(product.id)) {
-          mergedProducts.set(product.id, product)
-        }
-      }
-
-      const urunler = [...mergedProducts.values()].slice(0, 6)
-      if (urunler.length === 0) {
+      const orFilter = buildProductSearchPostgrestFilter(searchTerm, matchingCategoryIds, matchingBrandIds)
+      if (!orFilter) {
         setSearchResults([])
+        setSearchLoading(false)
         return
       }
+
+      const { data: urunlerData } = await supabase
+        .from('urunler')
+        .select('id, urun_adi, ana_gorsel_url, kategori_id, aciklama')
+        .eq('aktif_durum', true)
+        .or(orFilter)
+        .limit(20)
+
+      if (!urunlerData || urunlerData.length === 0) {
+        setSearchResults([])
+        setSearchLoading(false)
+        return
+      }
+
+      const sortedUrunler = [...urunlerData].sort((a, b) => scoreProductRelevance(b, searchTerm) - scoreProductRelevance(a, searchTerm))
+      const urunler = sortedUrunler.slice(0, 6)
 
       const results = await Promise.all(
         urunler.map(async (urun) => {
@@ -130,7 +151,18 @@ export default function Header() {
 
   function handleSearchChange(value: string) {
     setSearchQuery(value)
-    performSearch(value)
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current)
+    }
+    if (value.trim().length < 2) {
+      setSearchResults([])
+      setSearchLoading(false)
+      return
+    }
+    setSearchLoading(true)
+    searchTimeoutRef.current = setTimeout(() => {
+      performSearch(value)
+    }, 250)
   }
 
   function closeMenus() {
@@ -217,7 +249,10 @@ export default function Header() {
           <div className="flex items-center gap-1 sm:gap-2">
             <button
               type="button"
-              onClick={() => setSearchOpen((value) => !value)}
+              onClick={() => {
+                setSearchOpen((value) => !value)
+                setSearchResults([])
+              }}
               className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-700 transition hover:bg-zinc-100"
               aria-label="Arama"
             >
@@ -287,18 +322,30 @@ export default function Header() {
         </div>
 
         {searchOpen && (
-          <div className="border-t border-zinc-100 py-4">
+          <div ref={searchContainerRef} className="border-t border-zinc-100 py-4">
             <form onSubmit={handleSearchSubmit} className="relative mx-auto max-w-3xl">
               <Search className="absolute left-4 top-3.5 h-5 w-5 text-zinc-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                placeholder="Baharat, kategori veya ürün ara..."
-                className="shop-input pl-12 pr-24"
+                placeholder="Baharat, marka, kategori veya ürün ara..."
+                className="shop-input pl-12 pr-28"
                 autoFocus
               />
-              <button type="submit" className="absolute right-1.5 top-1.5 min-h-0 rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white">
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('')
+                    setSearchResults([])
+                  }}
+                  className="absolute right-20 top-3 text-zinc-400 hover:text-zinc-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              )}
+              <button type="submit" className="absolute right-1.5 top-1.5 min-h-0 rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-900">
                 Ara
               </button>
 
@@ -332,6 +379,14 @@ export default function Header() {
                           </div>
                         </button>
                       ))}
+                      <div className="bg-zinc-50 px-4 py-2.5 text-center">
+                        <button
+                          type="submit"
+                          className="text-xs font-bold text-emerald-800 hover:text-emerald-950"
+                        >
+                          "{searchQuery}" için tüm sonuçları gör &rarr;
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="px-4 py-5 text-center text-sm text-zinc-500">Ürün bulunamadı</div>
