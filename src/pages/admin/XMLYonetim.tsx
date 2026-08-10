@@ -328,19 +328,12 @@ export default function XMLYonetim() {
     }
 
     function getFeedUrl() {
-        const baseUrl = import.meta.env.VITE_SUPABASE_URL || ''
-        const token = encodeURIComponent(xmlSettings?.xml_token || '')
-        return `${baseUrl.replace(/\/$/, '')}/functions/v1/bayi-xml-feed?token=${token}`
+        return `${window.location.origin}/bayi.xml`
     }
 
     async function handleGenerateFeedXML() {
         if (selectedProducts.length === 0) {
             toast.error('XML\'e gÃ¶nderilecek sorti seÃ§ilmemiÅŸ!')
-            return
-        }
-
-        if (!xmlSettings?.xml_token) {
-            toast.error('Ã–nce XML eriÅŸim token\'Ä± oluÅŸturun')
             return
         }
 
@@ -370,20 +363,10 @@ export default function XMLYonetim() {
     }
 
     function handleOpenFeedXML() {
-        if (!xmlSettings?.xml_token) {
-            toast.error('Ã–nce XML eriÅŸim token\'Ä± oluÅŸturun')
-            return
-        }
-
         window.open(getFeedUrl(), '_blank', 'noopener,noreferrer')
     }
 
     async function handleCopyFeedUrl() {
-        if (!xmlSettings?.xml_token) {
-            toast.error('Ã–nce XML eriÅŸim token\'Ä± oluÅŸturun')
-            return
-        }
-
         const success = await copyToClipboard(getFeedUrl())
         if (success) {
             toast.success('XML feed linki kopyalandÄ±')
@@ -984,8 +967,8 @@ export default function XMLYonetim() {
                 )}
             </div>
 
-            {/* Token Yönetimi */}
-            <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            {/* XML artık doğrudan bayi.xml adresinden yayınlanır; erişim token'ı arayüzde kullanılmaz. */}
+            {false && <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                     <Key className="w-5 h-5 text-orange-600" />
                     Erişim Token'ı
@@ -1036,7 +1019,7 @@ export default function XMLYonetim() {
                         </button>
                     </div>
                 )}
-            </div>
+            </div>}
 
             {/* XML Durumu */}
             <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
