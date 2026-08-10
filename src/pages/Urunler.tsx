@@ -4,12 +4,17 @@ import { PackageSearch, Search, SlidersHorizontal, X } from 'lucide-react'
 import UrunKart from '../components/UrunKart'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { getMatchingCategoryIds, sanitizePostgrestSearchTerm } from '../utils/categorySearch'
+import {
+  buildProductSearchPostgrestFilter,
+  getMatchingBrandIds,
+  getMatchingCategoryIds,
+  scoreProductRelevance,
+} from '../utils/categorySearch'
 import { fetchInBatches } from '../utils/supabaseBatch'
 
 export default function Urunler() {
   const { musteriData } = useAuth()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [urunler, setUrunler] = useState<any[]>([])
   const [kategoriler, setKategoriler] = useState<any[]>([])
   const [markalar, setMarkalar] = useState<any[]>([])
@@ -67,16 +72,16 @@ export default function Urunler() {
 
     const searchTerm = aramaText.trim()
     const matchingCategoryIds = searchTerm ? getMatchingCategoryIds(kategoriler, searchTerm) : []
+    const matchingBrandIds = searchTerm ? getMatchingBrandIds(markalar, searchTerm) : []
 
     if (secilenKategori) query = query.eq('kategori_id', secilenKategori)
     if (secilenMarka) query = query.eq('marka_id', secilenMarka)
+
     if (searchTerm) {
-      const safeSearchTerm = sanitizePostgrestSearchTerm(searchTerm)
-      const searchFilters = [`urun_adi.ilike.%${safeSearchTerm}%`]
-      if (matchingCategoryIds.length > 0) {
-        searchFilters.push(`kategori_id.in.(${matchingCategoryIds.join(',')})`)
+      const orFilter = buildProductSearchPostgrestFilter(searchTerm, matchingCategoryIds, matchingBrandIds)
+      if (orFilter) {
+        query = query.or(orFilter)
       }
-      query = query.or(searchFilters.join(','))
     }
 
     if (secilenKampanya) {
@@ -109,12 +114,16 @@ export default function Urunler() {
       setActiveCampaign(null)
     }
 
-    const { data } = await query.order('urun_adi')
+    let { data } = await query.order('urun_adi')
 
     if (!data || data.length === 0) {
       setUrunler([])
       setLoading(false)
       return
+    }
+
+    if (searchTerm) {
+      data = [...data].sort((a, b) => scoreProductRelevance(b, searchTerm) - scoreProductRelevance(a, searchTerm))
     }
 
     const urunIds = data.map(u => u.id)
@@ -163,7 +172,7 @@ export default function Urunler() {
 
     setUrunler(urunlerWithData)
     setLoading(false)
-  }, [aramaText, kategoriler, musteriData?.musteri_tipi, secilenKampanya, secilenKategori, secilenMarka])
+  }, [aramaText, kategoriler, markalar, musteriData?.musteri_tipi, secilenKampanya, secilenKategori, secilenMarka])
 
   useEffect(() => {
     loadUrunler()
