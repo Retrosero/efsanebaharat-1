@@ -210,6 +210,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
       const filesToUploadCount = filesToUpload.length;
       
       if (filesToUploadCount > 0) {
+        let uploadedFileCount = 0;
         for (let i = 0; i < filesToUpload.length; i++) {
           const file = filesToUpload[i];
           
@@ -234,11 +235,16 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
 
           if (data?.success && publicUrl) {
             finalUrls.push(publicUrl);
+            uploadedFileCount++;
             setUploadProgress(((i + 1) / filesToUploadCount) * 100);
           } else {
             console.error('Upload response error:', data);
             toast.error(`${file.name} yüklenemedi: ${data?.error?.message || 'Gecersiz response'}`);
           }
+        }
+
+        if (uploadedFileCount === 0) {
+          throw new Error('Hiçbir görsel yüklenemedi. Yönetici oturumunuzu ve yükleme yetkilerini kontrol edin.');
         }
       }
 
