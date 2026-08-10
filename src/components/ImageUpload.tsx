@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Upload, X, Image as ImageIcon, Link, Smartphone, Clipboard } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
+import { getImageUrl } from '../utils/imageUtils';
 
 interface ImageUploadProps {
   maxFiles?: number; // Maksimum dosya sayısı (default: 1)
@@ -381,7 +382,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
           {previewUrls.map((url, index) => (
             <div key={index} className="relative group">
               <img
-                src={url}
+                src={getImageUrl(url)}
                 alt={`Preview ${index + 1}`}
                 className="w-full h-32 object-cover rounded-lg border-2 border-gray-200"
               />
